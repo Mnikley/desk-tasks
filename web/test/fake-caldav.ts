@@ -13,12 +13,20 @@ interface Collection {
 	writable: boolean;
 	objects: Map<string, string>;
 	changes: { token: number; href: string }[];
+	/** Owner principal as Nextcloud reports it; "principals/users/u" for the user's own. */
+	owner: string;
+	ownerName: string;
+	/** Raw <o:user> elements of oc:invite. */
+	invite: string;
+	/** No privilege set in the listing (only oc:read-only, as some servers do). */
+	noPrivilegeSet?: boolean;
+	calendarOrder: number;
 }
 
 const md5 = (s: string) => `"${createHash("md5").update(s).digest("hex")}"`;
 const ms = (body: string, extra = "") =>
 	new Response(
-		`<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/" xmlns:a="http://apple.com/ns/ical/">${body}${extra}</d:multistatus>`,
+		`<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/" xmlns:a="http://apple.com/ns/ical/" xmlns:o="http://owncloud.org/ns" xmlns:n="http://nextcloud.com/ns">${body}${extra}</d:multistatus>`,
 		{ status: 207, headers: { "content-type": "application/xml" } },
 	);
 const ok = (href: string, props: string) =>
@@ -63,6 +71,7 @@ export class FakeCaldav {
 		name: string,
 		components = ["VTODO"],
 		writable = true,
+		extra: Partial<Collection> = {},
 	): string {
 		const href = `${HOME}${slug}/`;
 		this.collections.set(href, {
@@ -72,6 +81,11 @@ export class FakeCaldav {
 			writable,
 			objects: new Map(),
 			changes: [],
+			owner: "principals/users/u",
+			ownerName: "U",
+			invite: "",
+			calendarOrder: this.collections.size,
+			...extra,
 		});
 		return href;
 	}
@@ -136,6 +150,10 @@ export class FakeCaldav {
 				writable: true,
 				objects: new Map(),
 				changes: [],
+				owner: "principals/users/u",
+				ownerName: "U",
+				invite: "",
+				calendarOrder: Number(tag("a:calendar-order") ?? this.collections.size),
 			});
 			return new Response(null, { status: 201 });
 		}
@@ -226,7 +244,7 @@ export class FakeCaldav {
 			const rows = [...this.collections].map(([href, c]) =>
 				ok(
 					href,
-					`<d:resourcetype><d:collection/><cal:calendar/></d:resourcetype><d:displayname>${c.name}</d:displayname><cal:supported-calendar-component-set>${c.components.map((x) => `<cal:comp name="${x}"/>`).join("")}</cal:supported-calendar-component-set><a:calendar-color>${c.color}</a:calendar-color><cs:getctag>http://fake/sync/${this.token}</cs:getctag><d:current-user-privilege-set><d:privilege><d:read/></d:privilege>${c.writable ? "<d:privilege><d:write/></d:privilege>" : ""}</d:current-user-privilege-set>`,
+					`<d:resourcetype><d:collection/><cal:calendar/></d:resourcetype><d:displayname>${c.name}</d:displayname><cal:supported-calendar-component-set>${c.components.map((x) => `<cal:comp name="${x}"/>`).join("")}</cal:supported-calendar-component-set><a:calendar-color>${c.color}</a:calendar-color><a:calendar-order>${c.calendarOrder}</a:calendar-order><cs:getctag>http://fake/sync/${this.token}</cs:getctag><d:sync-token>http://fake/sync/${this.token}</d:sync-token>${c.noPrivilegeSet ? "" : `<d:current-user-privilege-set><d:privilege><d:read/></d:privilege>${c.writable ? "<d:privilege><d:write/></d:privilege>" : ""}</d:current-user-privilege-set>`}<o:owner-principal>${c.owner}</o:owner-principal><n:owner-displayname>${c.ownerName}</n:owner-displayname>${c.owner === "principals/users/u" ? "" : `<o:read-only>${c.writable ? "" : "1"}</o:read-only>`}<o:invite>${c.invite}</o:invite>${c.owner === "principals/users/u" ? "<cs:allowed-sharing-modes><cs:can-be-shared/><cs:can-be-published/></cs:allowed-sharing-modes>" : ""}`,
 				),
 			);
 			return ms(

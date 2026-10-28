@@ -54,6 +54,15 @@ export interface TaskView {
 	/** Why the app won't change this task (read-only list, …), or null. */
 	readOnly: string | null;
 	recurring: boolean;
+	/** CLASS: "PUBLIC", "CONFIDENTIAL" (show only busy), "PRIVATE", or another value as written. */
+	klass: string;
+	pinned: boolean;
+	location: string;
+	url: string;
+	/** Redacted by the server for a view-only sharee (shown as "Busy" with a lock). */
+	redacted: boolean;
+	/** Which app wrote it last ("tasks.org", "Planify", …), from PRODID. */
+	origin: string | null;
 	/** CREATED (ms), or null when the task has none. */
 	createdAt: number | null;
 	/** LAST-MODIFIED, else DTSTAMP (ms); null if neither. */
@@ -104,10 +113,16 @@ export function isSection(f: TaskFields): boolean {
 	);
 }
 
+/** Who owns a shared list, in words ("Bob"; "its owner" when Nextcloud doesn't say). */
+export const ownerOf = (list: Pick<ListRecord, "ownerName" | "owner">) =>
+	list.ownerName || list.owner?.split("/").pop() || "its owner";
+
 /** Why a task can't be changed here, or null. */
 export function readOnlyReason(
 	row: Pick<TaskRecord, "notUtf8">,
-	list: Pick<ListRecord, "writable" | "name"> | undefined,
+	list:
+		| Pick<ListRecord, "writable" | "name" | "shared" | "ownerName" | "owner">
+		| undefined,
 	f: TaskFields | null,
 ): string | null {
 	if (!f) return "This task couldn't be read.";
@@ -116,8 +131,25 @@ export function readOnlyReason(
 	if (!list) return "Its list isn't here any more.";
 	if (!list.writable)
 		return `“${list.name}” is view only. You can see these tasks but not change them.`;
+	// The Tasks app's rule: in a list shared with you, only public tasks may be changed (the
+	// server may have redacted the others).
+	if (list.shared && f.klass !== "PUBLIC")
+		return `${ownerOf(list)} marked this task as private.`;
+	if (f.overrides)
+		return "This repeating task has occurrences changed in another app; shown read-only.";
 	if (f.recurring) return "Recurring task: shown read-only.";
 	return null;
+}
+
+/** Which app last wrote a task, from its PRODID (the sheet footer says "… in tasks.org"). */
+export function originOf(prodid: string): string | null {
+	const p = prodid.toLowerCase();
+	if (p.includes("tasks.org")) return "tasks.org";
+	if (p.includes("planify")) return "Planify";
+	if (p.includes("desk-tasks")) return "desk-tasks";
+	if (p.includes("timesheet")) return "timesheet";
+	if (p.includes("nextcloud")) return "Nextcloud";
+	return prodid ? "another app" : null;
 }
 
 const zoneOf = (d: IcalDate | null) =>
@@ -155,6 +187,12 @@ function toView(
 			(created === null ? 0 : Math.round(created / 1000) - APPLE_EPOCH_S),
 		readOnly: readOnlyReason(row, list, f),
 		recurring: f.recurring,
+		klass: f.klass,
+		pinned: f.pinned,
+		location: f.location,
+		url: f.url,
+		redacted: list.shared && !list.writable && f.klass === "CONFIDENTIAL",
+		origin: originOf(f.prodid),
 		createdAt: created,
 		modifiedAt: f.modified ? instantOf(f.modified, ctx.tz, doc) : null,
 	};

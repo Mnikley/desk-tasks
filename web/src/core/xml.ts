@@ -16,6 +16,7 @@ export const CALDAV = "urn:ietf:params:xml:ns:caldav";
 export const CS = "http://calendarserver.org/ns/";
 export const APPLE = "http://apple.com/ns/ical/";
 export const OC = "http://owncloud.org/ns";
+export const NC = "http://nextcloud.com/ns";
 
 export class XmlError extends Error {}
 

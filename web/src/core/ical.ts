@@ -254,8 +254,18 @@ export interface TaskFields {
 	created: IcalDate | null;
 	/** LAST-MODIFIED, or DTSTAMP when a client doesn't write it. */
 	modified: IcalDate | null;
-	/** RRULE/RDATE or several VTODOs (overrides): the app shows it read-only. */
+	/** RRULE/RDATE or several VTODOs (overrides). */
 	recurring: boolean;
+	/** More than one VTODO (RECURRENCE-ID overrides, jtx Board): shown read-only. */
+	overrides: boolean;
+	/** CLASS upper-cased; absent = "PUBLIC". */
+	klass: string;
+	/** X-PINNED:true (Nextcloud Tasks and Planify sort pinned tasks first). */
+	pinned: boolean;
+	location: string;
+	url: string;
+	/** PRODID of the VCALENDAR, "" when missing. */
+	prodid: string;
 }
 
 export class TaskDocument {
@@ -364,6 +374,16 @@ export class TaskDocument {
 				this.componentCount > 1 ||
 				this.own("RRULE").length > 0 ||
 				this.own("RDATE").length > 0,
+			overrides:
+				this.componentCount > 1 || this.own("RECURRENCE-ID").length > 0,
+			klass: (this.value("CLASS") ?? "").trim().toUpperCase() || "PUBLIC",
+			pinned: (this.value("X-PINNED") ?? "").trim().toLowerCase() === "true",
+			location: this.text("LOCATION"),
+			url: (this.value("URL") ?? "").trim(),
+			prodid:
+				this.lines
+					.find((l) => l.path === "VCALENDAR" && l.name === "PRODID")
+					?.value.trim() ?? "",
 		};
 	}
 

@@ -7,6 +7,7 @@ import {
 	CaldavUnreachable,
 	type Collection,
 	type Listed,
+	principalKey,
 } from "./caldav.ts";
 import { AUTH_HELP, asCore, type Ctx, client } from "./ctx.ts";
 import { CoreError } from "./errors.ts";
@@ -182,7 +183,12 @@ async function syncList(
 }
 
 /** Creates or updates one list record per collection that holds tasks. */
-function upsertCollections(ctx: Ctx, collections: Collection[]): string[] {
+function upsertCollections(
+	ctx: Ctx,
+	collections: Collection[],
+	principal: string | null = ctx.store.meta.principal,
+): string[] {
+	const me = principalKey(principal);
 	const existing = new Map(ctx.store.lists().map((r) => [r.href, r]));
 	const gone: string[] = [];
 	for (const c of collections) {
@@ -197,6 +203,12 @@ function upsertCollections(ctx: Ctx, collections: Collection[]): string[] {
 			ctag: c.ctag,
 			components: c.components,
 			writable: c.writable,
+			shared: !!c.owner && !!me && c.owner !== me,
+			owner: c.owner,
+			ownerName: c.ownerName,
+			sharees: c.sharees,
+			canShare: c.canShare,
+			appGenerated: c.appGenerated,
 			syncToken: r?.syncToken ?? null,
 			lastReconcileAt: r?.lastReconcileAt ?? null,
 			lastOkAt: r?.lastOkAt ?? null,
@@ -212,7 +224,9 @@ function upsertCollections(ctx: Ctx, collections: Collection[]): string[] {
 			syncToken: null,
 			error: {
 				kind: "gone",
-				message: `“${r.name}” no longer exists in Nextcloud (deleted, or no longer shared with you).`,
+				message: r.shared
+					? `“${r.name}” is no longer shared with you.`
+					: `“${r.name}” no longer exists in Nextcloud.`,
 				action: "Nothing to do; it leaves desk-tasks.",
 			},
 		});
@@ -394,7 +408,7 @@ async function runSync(ctx: Ctx): Promise<SyncOutcome> {
 		const dc = client(ctx);
 		const version = await dc.version();
 		const { principal, home, collections } = await dc.discover();
-		const gone = upsertCollections(ctx, collections);
+		const gone = upsertCollections(ctx, collections, principal);
 		const lists = ctx.store.lists().filter((x) => x.error?.kind !== "gone");
 		const failed: string[] = [];
 		for (const r of lists) {

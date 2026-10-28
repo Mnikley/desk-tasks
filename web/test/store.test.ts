@@ -4,23 +4,19 @@ import { expect, test } from "bun:test";
 import { IDBFactory } from "fake-indexeddb";
 import { IdbPersister, openMirror } from "../src/core/idb.ts";
 import { type ListRecord, Store, type TaskRecord } from "../src/core/store.ts";
+import { listRecord as baseList } from "./helpers.ts";
 
 const LIST = "/remote.php/dav/calendars/u/l/";
-const list = (o: Partial<ListRecord> = {}): ListRecord => ({
-	href: LIST,
-	name: "L",
-	color: null,
-	order: 0,
-	ctag: null,
-	components: ["VTODO"],
-	writable: true,
-	syncToken: "t1",
-	lastReconcileAt: 1,
-	lastOkAt: 2,
-	lastChangedAt: 3,
-	error: null,
-	...o,
-});
+const list = (o: Partial<ListRecord> = {}): ListRecord =>
+	baseList({
+		href: LIST,
+		name: "L",
+		syncToken: "t1",
+		lastReconcileAt: 1,
+		lastOkAt: 2,
+		lastChangedAt: 3,
+		...o,
+	});
 const task = (href: string, ics = "x"): Omit<TaskRecord, "syncedAt"> => ({
 	href,
 	list: LIST,

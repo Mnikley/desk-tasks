@@ -6,7 +6,7 @@ import { attempt, type Ctx, consoleLogger } from "../src/core/ctx.ts";
 import { type ListRecord, Store } from "../src/core/store.ts";
 import { listTasks } from "../src/core/tasks.ts";
 import { updateTask } from "../src/core/write.ts";
-import { at, fixture, TZ } from "./helpers.ts";
+import { at, listRecord as baseList, fixture, TZ } from "./helpers.ts";
 
 const LIST = "/remote.php/dav/calendars/u/errands/";
 const PLANIFY = "8c1f3a52-6d0e-4b7a-9f21-3e5d7c4a1b90";
@@ -14,21 +14,8 @@ const TASKSORG = "6352917440981726354";
 
 let ctx: Ctx;
 
-const listRecord = (o: Partial<ListRecord> = {}): ListRecord => ({
-	href: LIST,
-	name: "Errands",
-	color: "#0e9484",
-	order: 0,
-	ctag: null,
-	components: ["VTODO"],
-	writable: true,
-	syncToken: null,
-	lastReconcileAt: null,
-	lastOkAt: null,
-	lastChangedAt: null,
-	error: null,
-	...o,
-});
+const listRecord = (o: Partial<ListRecord> = {}): ListRecord =>
+	baseList({ href: LIST, ...o });
 
 /** Stores tasks as if a sync had fetched them. */
 async function seed(names: string[], opts: { writable?: boolean } = {}) {

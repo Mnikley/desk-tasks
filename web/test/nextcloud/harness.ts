@@ -7,15 +7,23 @@ export const NEXTCLOUD_URL =
 const CONTAINER =
 	process.env.NEXTCLOUD_CONTAINER ?? "desk-tasks-nextcloud-test-nextcloud-1";
 export const USER = { name: "tester", password: "tester-password-123" };
+/** Other users for sharing; tester and alice are in the group "team". */
+export const ALICE = { name: "alice", password: "alice-password-123" };
+export const BOB = { name: "bob", password: "bob-password-1234" };
+export const GROUP = "team";
 
 function occ(...args: string[]): string {
+	return occWith(USER.password, ...args);
+}
+
+function occWith(password: string, ...args: string[]): string {
 	const p = Bun.spawnSync([
 		"docker",
 		"exec",
 		"-u",
 		"www-data",
 		"-e",
-		`OC_PASS=${USER.password}`,
+		`OC_PASS=${password}`,
 		CONTAINER,
 		"php",
 		"occ",
@@ -74,19 +82,44 @@ export async function prepare(): Promise<NextcloudEnv> {
 		"--value=-1",
 		"--type=integer",
 	);
-	const exists =
-		Bun.spawnSync([
-			"docker",
-			"exec",
-			"-u",
-			"www-data",
-			CONTAINER,
-			"php",
-			"occ",
-			"user:info",
-			USER.name,
-		]).exitCode === 0;
-	if (!exists) occ("user:add", "--password-from-env", USER.name);
+	occ(
+		"config:app:set",
+		"dav",
+		"rateLimitShareAddressbookOrCalendar",
+		"--value=10000",
+		"--type=integer",
+	);
+	for (const [u, display] of [
+		[USER, "Tester"],
+		[ALICE, "Alice"],
+		[BOB, "Bob"],
+	] as const) {
+		const exists =
+			Bun.spawnSync([
+				"docker",
+				"exec",
+				"-u",
+				"www-data",
+				CONTAINER,
+				"php",
+				"occ",
+				"user:info",
+				u.name,
+			]).exitCode === 0;
+		if (!exists)
+			occWith(
+				u.password,
+				"user:add",
+				"--password-from-env",
+				"--display-name",
+				display,
+				u.name,
+			);
+	}
+	const groups = occ("group:list", "--output=json");
+	if (!groups.includes(`"${GROUP}"`)) occ("group:add", GROUP);
+	occ("group:adduser", GROUP, ALICE.name);
+	occ("group:adduser", GROUP, USER.name);
 	const res = await fetch(
 		`${NEXTCLOUD_URL}/ocs/v2.php/core/getapppassword?format=json`,
 		{
@@ -104,8 +137,77 @@ export async function prepare(): Promise<NextcloudEnv> {
 	return { url: NEXTCLOUD_URL, version, appPassword };
 }
 
-const basic = (password: string) =>
-	`Basic ${Buffer.from(`${USER.name}:${password}`).toString("base64")}`;
+const basic = (password: string, user = USER.name) =>
+	`Basic ${Buffer.from(`${user}:${password}`).toString("base64")}`;
+
+export type TestUser = { name: string; password: string };
+
+/** Raw DAV request as another user (account password). */
+export function davAs(
+	who: TestUser,
+	method: string,
+	path: string,
+	opts: { body?: string; headers?: Record<string, string> } = {},
+): Promise<Response> {
+	return fetch(`${NEXTCLOUD_URL}${path}`, {
+		method,
+		body: opts.body,
+		headers: { Authorization: basic(who.password, who.name), ...opts.headers },
+	});
+}
+
+/** A VTODO list owned by `who`; returns its href. */
+export async function mkcalendarAs(
+	who: TestUser,
+	slug: string,
+	name: string,
+): Promise<string> {
+	const href = `/remote.php/dav/calendars/${who.name}/${slug}/`;
+	const res = await davAs(who, "MKCALENDAR", href, {
+		headers: { "content-type": "application/xml" },
+		body: `<c:mkcalendar xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:set><d:prop><d:displayname>${name}</d:displayname><c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set></d:prop></d:set></c:mkcalendar>`,
+	});
+	if (res.status !== 201)
+		throw new Error(`MKCALENDAR ${slug}: ${res.status} ${await res.text()}`);
+	return href;
+}
+
+/** Shares `href` (owned by `who`) over DAV: `<o:share>` with set/remove elements. */
+export async function shareAs(
+	who: TestUser,
+	href: string,
+	sets: { principal: string; readWrite?: boolean }[],
+	removes: string[] = [],
+): Promise<void> {
+	const body = `<o:share xmlns:d="DAV:" xmlns:o="http://owncloud.org/ns">${sets
+		.map(
+			(s) =>
+				`<o:set><d:href>principal:${s.principal}</d:href>${s.readWrite ? "<o:read-write/>" : ""}</o:set>`,
+		)
+		.join("")}${removes
+		.map((r) => `<o:remove><d:href>principal:${r}</d:href></o:remove>`)
+		.join("")}</o:share>`;
+	const res = await davAs(who, "POST", href, {
+		headers: { "content-type": "application/xml" },
+		body,
+	});
+	if (res.status !== 200)
+		throw new Error(`share ${href}: ${res.status} ${await res.text()}`);
+}
+
+/** PUT as another user (If-None-Match: *). */
+export async function putAs(
+	who: TestUser,
+	href: string,
+	text: string,
+): Promise<void> {
+	const res = await davAs(who, "PUT", href, {
+		body: text,
+		headers: { "content-type": "text/calendar", "If-None-Match": "*" },
+	});
+	if (res.status !== 201)
+		throw new Error(`PUT ${href}: ${res.status} ${await res.text()}`);
+}
 
 export const CAL_HOME = `/remote.php/dav/calendars/${USER.name}/`;
 

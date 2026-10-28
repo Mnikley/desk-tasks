@@ -110,3 +110,28 @@ export function testCore(opts: {
 	};
 	return { ctx, clock, log, logged };
 }
+
+/** A list record as discovery would store it. */
+export const listRecord = (
+	o: Partial<import("../src/core/store.ts").ListRecord> = {},
+): import("../src/core/store.ts").ListRecord => ({
+	href: "/remote.php/dav/calendars/u/errands/",
+	name: "Errands",
+	color: "#0e9484",
+	order: 0,
+	ctag: null,
+	components: ["VTODO"],
+	writable: true,
+	shared: false,
+	owner: "principals/users/u",
+	ownerName: "U",
+	sharees: [],
+	canShare: true,
+	appGenerated: false,
+	syncToken: null,
+	lastReconcileAt: null,
+	lastOkAt: null,
+	lastChangedAt: null,
+	error: null,
+	...o,
+});

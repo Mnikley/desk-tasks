@@ -15,6 +15,8 @@ import {
 	esc,
 	kid,
 	kids,
+	NC,
+	OC,
 	parseXml,
 	type XmlElement,
 } from "./xml.ts";
@@ -43,6 +45,15 @@ export class CaldavUnreachable extends Error {
 	}
 }
 
+/** Someone a list is shared with (from `oc:invite`). */
+export interface Sharee {
+	/** Exactly as Nextcloud names it, e.g. "principal:principals/users/alice". */
+	href: string;
+	name: string;
+	kind: "user" | "group" | "circle" | "other";
+	access: "read" | "read-write";
+}
+
 export interface Collection {
 	href: string;
 	name: string;
@@ -51,7 +62,20 @@ export interface Collection {
 	order: number;
 	ctag: string | null;
 	components: string[];
+	/** The user may write tasks here (privilege set; `oc:read-only` only as a fallback). */
 	writable: boolean;
+	/** `oc:owner-principal`, e.g. "principals/users/bob" (null when not reported). */
+	owner: string | null;
+	/** `nc:owner-displayname`. */
+	ownerName: string | null;
+	/** Sharees (`oc:invite`); always empty for lists shared with me. */
+	sharees: Sharee[];
+	/** `cs:allowed-sharing-modes` says the user may share it (owners only). */
+	canShare: boolean;
+	/** `d:sync-token` (null: the list has none, e.g. a Deck board). */
+	syncToken: string | null;
+	/** A Deck board or another app-generated list: never writable. */
+	appGenerated: boolean;
 }
 
 export interface Listed {
@@ -73,9 +97,11 @@ export function normaliseColor(c: string | null | undefined): string | null {
 }
 
 const PROPFIND_COLLECTIONS = `<?xml version="1.0" encoding="utf-8"?>
-<d:propfind xmlns:d="DAV:" xmlns:c="${CALDAV}" xmlns:cs="${CS}" xmlns:a="${APPLE}">
+<d:propfind xmlns:d="DAV:" xmlns:c="${CALDAV}" xmlns:cs="${CS}" xmlns:a="${APPLE}" xmlns:oc="${OC}" xmlns:nc="${NC}">
 <d:prop><d:resourcetype/><d:displayname/><c:supported-calendar-component-set/>
-<a:calendar-color/><a:calendar-order/><cs:getctag/><d:current-user-privilege-set/></d:prop>
+<a:calendar-color/><a:calendar-order/><cs:getctag/><d:current-user-privilege-set/>
+<oc:owner-principal/><nc:owner-displayname/><oc:read-only/><oc:invite/>
+<cs:allowed-sharing-modes/><d:sync-token/><nc:deleted-at/></d:prop>
 </d:propfind>`;
 
 const PROPFIND_ETAGS = `<?xml version="1.0" encoding="utf-8"?>
@@ -336,12 +362,12 @@ export class CaldavClient {
 		const out: Collection[] = [];
 		for (const r of ms.responses) {
 			const types = prop(r, DAV, "resourcetype")?.children ?? [];
+			// Inbox, outbox, the trash bin, subscriptions and trashed lists aren't calendars.
 			if (!types.some((t) => t.ns === CALDAV && t.name === "calendar"))
 				continue;
 			this.url(r.href);
-			const privileges = (
-				prop(r, DAV, "current-user-privilege-set")?.children ?? []
-			)
+			const privilegeSet = prop(r, DAV, "current-user-privilege-set");
+			const privileges = (privilegeSet?.children ?? [])
 				.flatMap((p) => p.children)
 				.map((p) => `${p.ns}|${p.name}`);
 			const components = kids(
@@ -351,6 +377,17 @@ export class CaldavClient {
 			)
 				.map((c) => attrName(c))
 				.filter(Boolean);
+			const appGenerated =
+				decodedPath(r.href).split("/").pop()?.startsWith("app-generated--") ===
+				true;
+			const readOnlyFlag = prop(r, OC, "read-only")?.text.trim();
+			const writable =
+				!appGenerated &&
+				(privilegeSet
+					? privileges.includes(`${DAV}|write`) ||
+						privileges.includes(`${DAV}|write-content`) ||
+						privileges.includes(`${DAV}|all`)
+					: !(readOnlyFlag === "1" || readOnlyFlag === "true"));
 			out.push({
 				href: r.href,
 				name:
@@ -364,10 +401,19 @@ export class CaldavClient {
 				components: components.length
 					? components
 					: ["VEVENT", "VTODO", "VJOURNAL"],
-				writable:
-					privileges.includes(`${DAV}|write`) ||
-					privileges.includes(`${DAV}|write-content`) ||
-					privileges.includes(`${DAV}|all`),
+				writable,
+				owner:
+					principalKey(
+						kid(prop(r, OC, "owner-principal"), DAV, "href")?.text ??
+							prop(r, OC, "owner-principal")?.text,
+					) || null,
+				ownerName: prop(r, NC, "owner-displayname")?.text.trim() || null,
+				sharees: kids(prop(r, OC, "invite"), OC, "user").map(sharee),
+				canShare:
+					kids(prop(r, CS, "allowed-sharing-modes"), CS, "can-be-shared")
+						.length > 0,
+				syncToken: prop(r, DAV, "sync-token")?.text.trim() || null,
+				appGenerated,
 			});
 		}
 		return out;
@@ -544,6 +590,43 @@ export class CaldavClient {
 }
 
 const attrName = (el: XmlElement) => (el.attrs.name ?? "").toUpperCase();
+
+/**
+ * A principal in the form Nextcloud's `oc:owner-principal` uses ("principals/users/bob"), from
+ * either that or a principal href ("/remote.php/dav/principals/users/bob/").
+ */
+export function principalKey(p: string | null | undefined): string {
+	const path = (p ?? "").trim().replace(/^principal:/, "");
+	const at = path.indexOf("principals/");
+	return (at === -1 ? path : path.slice(at)).replace(/\/+$/, "");
+}
+
+function sharee(el: XmlElement): Sharee {
+	const href = kid(el, DAV, "href")?.text.trim() ?? "";
+	const key = principalKey(href);
+	const kind = key.startsWith("principals/users/")
+		? "user"
+		: key.startsWith("principals/groups/")
+			? "group"
+			: key.startsWith("principals/circles/")
+				? "circle"
+				: "other";
+	const access = kid(kid(el, OC, "access"), OC, "read-write")
+		? "read-write"
+		: "read";
+	let fallback = key.split("/").pop() ?? href;
+	try {
+		fallback = decodeURIComponent(fallback);
+	} catch {
+		// A malformed %-escape: show it as written.
+	}
+	return {
+		href,
+		name: kid(el, OC, "common-name")?.text.trim() || fallback,
+		kind,
+		access,
+	};
+}
 
 export const sameHref = (a: string, b: string) =>
 	decodedPath(a) === decodedPath(b);

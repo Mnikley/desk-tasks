@@ -1,3 +1,5 @@
+import type { Sharee } from "./caldav.ts";
+
 // The store seam: the task mirror, the list mirror, the journal and the durable settings,
 // read synchronously from memory and written through to a `Persister` (IndexedDB plus the
 // bridge's settings file in the app; nothing in tests). Reads never wait for disk.
@@ -33,7 +35,19 @@ export interface ListRecord {
 	order: number;
 	ctag: string | null;
 	components: string[];
+	/** The user may write tasks here. */
 	writable: boolean;
+	/** Owned by someone else ("principals/users/bob" ≠ my principal). */
+	shared: boolean;
+	/** "principals/users/bob", or null when Nextcloud doesn't say. */
+	owner: string | null;
+	ownerName: string | null;
+	/** Who the list is shared with (owner's view only). */
+	sharees: Sharee[];
+	/** The user may share it (owner, sharing allowed). */
+	canShare: boolean;
+	/** A Deck board or another app-generated list (view only, hidden by default). */
+	appGenerated: boolean;
 	syncToken: string | null;
 	lastReconcileAt: number | null;
 	lastOkAt: number | null;
