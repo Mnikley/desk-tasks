@@ -64,6 +64,8 @@ export interface Change {
 	url?: string;
 	/** PERCENT-COMPLETE 0–100; moves STATUS along (0 to do, 1–99 in progress, 100 done). */
 	progress?: number;
+	/** X-APPLE-SORT-ORDER (manual order; see order.ts for the rule that picks it). */
+	order?: number;
 }
 
 export interface CreateInput extends Change {
@@ -90,6 +92,7 @@ const TOUCHES: Record<keyof Change, (f: TaskFields) => unknown> = {
 	url: (f) => f.url,
 	// A progress change writes STATUS too, so a status change elsewhere overlaps it.
 	progress: (f) => [f.status, f.completed, f.percent],
+	order: (f) => f.sortOrder,
 };
 
 function invalid(message: string): never {
@@ -135,6 +138,8 @@ function validate(c: Change): Change {
 		if (out.url.length > 2000 || /\s/.test(out.url))
 			invalid("That link isn't a valid address.");
 	}
+	if (c.order !== undefined && (!Number.isSafeInteger(c.order) || c.order < 0))
+		invalid("That position isn't valid.");
 	if (
 		c.progress !== undefined &&
 		(!Number.isFinite(c.progress) || c.progress < 0 || c.progress > 100)
@@ -171,6 +176,7 @@ export function applyChange(ctx: Ctx, text: string, c: Change): string {
 	if (c.status !== undefined) doc.setStatus(c.status, ctx.now());
 	if (c.progress !== undefined) doc.setProgress(c.progress, ctx.now());
 	if (c.pinned !== undefined) doc.setPinned(c.pinned);
+	if (c.order !== undefined) doc.setSortOrder(c.order);
 	if (c.klass !== undefined) doc.setClass(c.klass);
 	if (c.location !== undefined && c.location !== f.location)
 		doc.setText("LOCATION", c.location);
@@ -619,8 +625,8 @@ export function subtree(ctx: Ctx, row: TaskRecord): TaskRecord[] {
 	return out;
 }
 
-/** Runs a subtree step by step; a failure says how many were already done. */
-async function eachOf<T>(
+/** Runs steps in order; a failure says how many were already done ("2 of 5 tasks were …"). */
+export async function eachOf<T>(
 	nodes: T[],
 	verb: string,
 	step: (n: T) => Promise<void>,
@@ -635,7 +641,7 @@ async function eachOf<T>(
 		if (done && err instanceof CoreError)
 			throw new CoreError(
 				err.kind,
-				`${done} of ${nodes.length} tasks (subtasks first) were already ${verb}. ${err.message}`,
+				`${done} of ${nodes.length} tasks were already ${verb}. ${err.message}`,
 				err.extra,
 			);
 		throw err;
@@ -652,7 +658,9 @@ export async function deleteTask(
 	for (const n of nodes) dc = gate(ctx, list, n);
 	if (!dc) throw new Error("Broken invariant: an empty subtree.");
 	const client = dc;
-	await eachOf(nodes, "deleted", (n) => deleteOne(ctx, client, n, list.href));
+	await eachOf(nodes, "deleted (subtasks first)", (n) =>
+		deleteOne(ctx, client, n, list.href),
+	);
 	return { deleted: nodes.length };
 }
 
@@ -726,7 +734,7 @@ export async function moveTask(
 	const dc = gate(ctx, target);
 	// Children first, then the task itself, like Nextcloud Tasks.
 	let moved = href;
-	await eachOf(nodes, "moved", async (n) => {
+	await eachOf(nodes, "moved (subtasks first)", async (n) => {
 		const dest = await moveOne(ctx, dc, n, list.href, target);
 		if (n.href === href) moved = dest;
 	});

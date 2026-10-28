@@ -494,6 +494,12 @@ export class TaskDocument {
 		else this.set("URL", s);
 	}
 
+	/** X-APPLE-SORT-ORDER (manual order), an integer as every client writes it. */
+	setSortOrder(n: number): void {
+		if (this.fields().sortOrder === n) return;
+		this.set("X-APPLE-SORT-ORDER", String(Math.round(n)));
+	}
+
 	/** X-PINNED:true, as Nextcloud Tasks and Planify write it; unpinning removes the line. */
 	setPinned(pinned: boolean): void {
 		if (this.fields().pinned === pinned) return;

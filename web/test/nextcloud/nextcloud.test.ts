@@ -6,8 +6,14 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { CaldavClient, CaldavError } from "../../src/core/caldav.ts";
 import { attempt } from "../../src/core/ctx.ts";
 import type { Failure } from "../../src/core/errors.ts";
+import {
+	applyOrder,
+	compareManual,
+	reorderPlan,
+} from "../../src/core/order.ts";
 import { sync } from "../../src/core/sync.ts";
 import { listTasks, type TaskView } from "../../src/core/tasks.ts";
+import { journaled } from "../../src/core/undo.ts";
 import {
 	type Change,
 	createTask,
@@ -527,6 +533,51 @@ describe.skipIf(!enabled)("the core (real Nextcloud)", () => {
 		expect((await getObject(`${list}${parent.uid}.ics`))?.text).toBe(
 			before?.text,
 		);
+	});
+
+	test("manual order writes only the moved and bumped tasks, read back byte-exact", async () => {
+		const ordered = await mkcalendar(`order-${suffix}`, `Order ${suffix}`, [
+			"VTODO",
+		]);
+		for (const [uid, n] of [
+			["o1", 0],
+			["o2", 0],
+			["o3", 782563200],
+		] as const)
+			await putObject(
+				`${ordered}${uid}.ics`,
+				`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:x\r\nBEGIN:VTODO\r\nUID:${uid}-${suffix}\r\nDTSTAMP:20261020T000000Z\r\nSUMMARY:${uid}\r\nX-APPLE-SORT-ORDER:${n}\r\nEND:VTODO\r\nEND:VCALENDAR\r\n`,
+			);
+		await forced();
+		const sibs = tasks()
+			.filter((t) => t.list === ordered)
+			.sort(compareManual);
+		const before = await Promise.all(sibs.map((t) => getObject(t.href)));
+		const plan = reorderPlan(sibs, sibs[2] as never, 0); // o3 to the top
+		expect(plan.map((p) => p.order)).toEqual([0, 1, 2]);
+		const n = proxy.writes().length;
+		await ok(attempt(() => journaled(core.ctx, (g) => applyOrder(g, plan))));
+		expect(proxy.writes().length - n).toBe(3);
+		expect(
+			tasks()
+				.filter((t) => t.list === ordered)
+				.sort(compareManual)
+				.map((t) => t.summary),
+		).toEqual(["o3", "o1", "o2"]);
+		for (const [i, t] of sibs.entries()) {
+			const d = diff(
+				before[i]?.text ?? "",
+				(await getObject(t.href))?.text ?? "",
+			);
+			expect(d.added.map((l) => l.split(":")[0]).sort()).toEqual([
+				"DTSTAMP",
+				"X-APPLE-SORT-ORDER",
+			]);
+			// What the core stored is exactly what Nextcloud holds.
+			expect(core.ctx.store.task(t.href)?.ics).toBe(
+				(await getObject(t.href))?.text,
+			);
+		}
 	});
 
 	test("recurring tasks are read-only: nothing is sent", async () => {
