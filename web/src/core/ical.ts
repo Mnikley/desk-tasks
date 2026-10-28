@@ -825,7 +825,7 @@ function parseTrigger(value: string, params: Param[]): Trigger | null {
 	const valueType = params.find((p) => p.name === "VALUE")?.value.toUpperCase();
 	if (valueType === "DATE-TIME") {
 		const d = parseDateValue(value, params);
-		if (!d || d.kind !== "date-time" || !d.utc) return null;
+		if (d?.kind !== "date-time" || !d.utc) return null;
 		return { kind: "absolute", at: instantOf(d, "UTC") };
 	}
 	const seconds = parseDuration(value);

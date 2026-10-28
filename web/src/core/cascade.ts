@@ -5,13 +5,7 @@
 import type { Ctx } from "./ctx.ts";
 import { CoreError } from "./errors.ts";
 import type { TaskRecord } from "./store.ts";
-import {
-	parsed,
-	readOnlyReason,
-	type TaskView,
-	taskRow,
-	taskView,
-} from "./tasks.ts";
+import { parsed, type TaskView, taskRow, taskView } from "./tasks.ts";
 import {
 	checkAll,
 	eachOf,

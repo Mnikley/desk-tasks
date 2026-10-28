@@ -5,13 +5,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { attempt } from "../src/core/ctx.ts";
 import { addJournal } from "../src/core/journal.ts";
-import {
-	createList,
-	deleteList,
-	renameList,
-	storeTask,
-	sync,
-} from "../src/core/sync.ts";
+import { changeList, createList, deleteList } from "../src/core/lists.ts";
+import { storeTask, sync } from "../src/core/sync.ts";
 import { listTasks, type TaskView } from "../src/core/tasks.ts";
 import {
 	type Change,
@@ -356,7 +351,8 @@ test("a list made here is made in Nextcloud for tasks; a rename goes there too a
 	expect(there?.components).toEqual(["VTODO"]);
 
 	expect(
-		(await attempt(() => renameList(core.ctx, made.value, "Garden"))).ok,
+		(await attempt(() => changeList(core.ctx, made.value, { name: "Garden" })))
+			.ok,
 	).toBe(true);
 	expect(there?.name).toBe("Garden");
 	await forced();
@@ -390,12 +386,28 @@ test("a list made but not read back says so, and appears with the next sync", as
 	).toHaveLength(1);
 });
 
-test("a list shared read-only isn't renamed, and Nextcloud isn't asked", async () => {
-	const shared = fake.addList("shared", "Shared", ["VTODO"], false);
+test("a list shared with me is renamed for me only; a refused property is an error", async () => {
+	const shared = fake.addList("shared", "Shared", ["VTODO"], false, {
+		owner: "principals/users/bob",
+	});
 	await forced();
-	const err = await attempt(() => renameList(core.ctx, shared, "Mine"));
+	expect(
+		(await attempt(() => changeList(core.ctx, shared, { name: "Mine" }))).ok,
+	).toBe(true);
+	expect(core.ctx.store.list(shared)?.name).toBe("Mine");
+	// A 207 can hide a 403 for the property itself.
+	fake.before = async (req, path) =>
+		req.method === "PROPPATCH"
+			? new Response(
+					`<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>${path}</d:href><d:propstat><d:prop><d:displayname/></d:prop><d:status>HTTP/1.1 403 Forbidden</d:status></d:propstat></d:response></d:multistatus>`,
+					{ status: 207 },
+				)
+			: undefined;
+	const err = await attempt(() =>
+		changeList(core.ctx, shared, { name: "Other" }),
+	);
 	expect(!err.ok && err.error.kind).toBe("refused");
-	expect(fake.log.some((l) => l.startsWith("PROPPATCH "))).toBe(false);
+	expect(core.ctx.store.list(shared)?.name).toBe("Mine");
 });
 
 test("deleting a list deletes it in Nextcloud with its tasks; one that also holds events isn't", async () => {

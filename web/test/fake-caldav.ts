@@ -160,12 +160,26 @@ export class FakeCaldav {
 		if (req.method === "PROPPATCH") {
 			const c = this.collections.get(path);
 			if (!c) return new Response("not found", { status: 404 });
-			if (!c.writable)
-				return ms(
-					`<d:response><d:href>${path}</d:href><d:propstat><d:prop><d:displayname/></d:prop><d:status>HTTP/1.1 403 Forbidden</d:status></d:propstat></d:response>`,
-				);
-			c.name = /<d:displayname>(.*?)<\/d:displayname>/.exec(body)?.[1] ?? "";
-			return ms(ok(path, "<d:displayname/>"));
+			// Like Nextcloud: name, colour and order are stored per user, also by view-only sharees.
+			const tag = (t: string) =>
+				new RegExp(`<${t}>(.*?)</${t}>`).exec(body)?.[1];
+			const props: string[] = [];
+			const name = tag("d:displayname");
+			if (name !== undefined) {
+				c.name = name;
+				props.push("<d:displayname/>");
+			}
+			const color = tag("a:calendar-color");
+			if (color !== undefined) {
+				c.color = color;
+				props.push("<a:calendar-color/>");
+			}
+			const order = tag("a:calendar-order");
+			if (order !== undefined) {
+				c.calendarOrder = Number(order);
+				props.push("<a:calendar-order/>");
+			}
+			return ms(ok(path, props.join("")));
 		}
 		if (req.method === "DELETE" && this.collections.has(path)) {
 			if (!this.collections.get(path)?.writable)

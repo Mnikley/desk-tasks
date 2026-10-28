@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { principalKey } from "../src/core/caldav.ts";
 import { attempt } from "../src/core/ctx.ts";
+import { createList } from "../src/core/lists.ts";
 import { sync } from "../src/core/sync.ts";
 import { listTasks } from "../src/core/tasks.ts";
 import { updateTask } from "../src/core/write.ts";
@@ -150,4 +151,28 @@ test("principal keys compare owner-principal with my principal href", () => {
 		"principals/groups/team",
 	);
 	expect(HOME).toContain("/calendars/u/");
+});
+
+test("Nextcloud's list limit and creation rate limit read as next steps", async () => {
+	for (const [answer, message] of [
+		[
+			new Response(
+				'<?xml version="1.0"?><d:error xmlns:d="DAV:" xmlns:s="http://sabredav.org/ns"><s:message>Calendar limit reached</s:message></d:error>',
+				{ status: 403 },
+			),
+			"You've reached Nextcloud's list limit (lists in the trash count too). Empty the trash or ask your admin.",
+		],
+		[
+			new Response("slow down", { status: 429 }),
+			"Nextcloud allows 10 new lists per hour. Try again later.",
+		],
+	] as const) {
+		fake.before = async (req) =>
+			req.method === "MKCALENDAR" ? answer.clone() : undefined;
+		await sync(core.ctx, { force: true });
+		const res = await attempt(() =>
+			createList(core.ctx, { name: "More", color: "#112233" }),
+		);
+		expect(!res.ok && res.error.message).toBe(message);
+	}
 });

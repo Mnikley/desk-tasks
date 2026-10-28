@@ -430,32 +430,195 @@ export class CaldavClient {
 	}
 
 	/** Makes a task list at `href` (RFC 4791 MKCALENDAR, VTODO only). */
-	async createList(href: string, name: string, color: string): Promise<void> {
+	async createList(
+		href: string,
+		name: string,
+		color: string,
+		order?: number,
+	): Promise<void> {
 		const res = await this.send("MKCALENDAR", href, {
 			headers: { "Content-Type": "application/xml; charset=utf-8" },
-			body: `<?xml version="1.0" encoding="utf-8"?><c:mkcalendar xmlns:d="DAV:" xmlns:c="${CALDAV}" xmlns:a="${APPLE}"><d:set><d:prop><d:displayname>${esc(name)}</d:displayname><a:calendar-color>${esc(color)}</a:calendar-color><c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set></d:prop></d:set></c:mkcalendar>`,
+			body: `<?xml version="1.0" encoding="utf-8"?><c:mkcalendar xmlns:d="DAV:" xmlns:c="${CALDAV}" xmlns:a="${APPLE}"><d:set><d:prop><d:displayname>${esc(name)}</d:displayname><a:calendar-color>${esc(color)}</a:calendar-color>${order === undefined ? "" : `<a:calendar-order>${order}</a:calendar-order>`}<c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set></d:prop></d:set></c:mkcalendar>`,
 		});
 		if (res.status !== 201) this.fail(res, "list creation");
 	}
 
 	/** Renames a collection (PROPPATCH of its display name). */
-	async rename(href: string, name: string): Promise<void> {
+	rename(href: string, name: string): Promise<void> {
+		return this.proppatch(href, { name });
+	}
+
+	/**
+	 * Sets list properties (name, colour, order) with one PROPPATCH. A 207 can still refuse a
+	 * property (a 403 propstat): every one must come back in a 2xx propstat.
+	 */
+	async proppatch(
+		href: string,
+		p: { name?: string; color?: string; order?: number },
+	): Promise<void> {
+		const props: [string, string, string][] = [];
+		if (p.name !== undefined)
+			props.push([
+				DAV,
+				"displayname",
+				`<d:displayname>${esc(p.name)}</d:displayname>`,
+			]);
+		if (p.color !== undefined)
+			props.push([
+				APPLE,
+				"calendar-color",
+				`<a:calendar-color>${esc(p.color)}</a:calendar-color>`,
+			]);
+		if (p.order !== undefined)
+			props.push([
+				APPLE,
+				"calendar-order",
+				`<a:calendar-order>${p.order}</a:calendar-order>`,
+			]);
+		if (!props.length) return;
 		const ms = await this.xml(
 			"PROPPATCH",
 			href,
-			`<?xml version="1.0" encoding="utf-8"?><d:propertyupdate xmlns:d="DAV:"><d:set><d:prop><d:displayname>${esc(name)}</d:displayname></d:prop></d:set></d:propertyupdate>`,
+			`<?xml version="1.0" encoding="utf-8"?><d:propertyupdate xmlns:d="DAV:" xmlns:a="${APPLE}"><d:set><d:prop>${props.map((x) => x[2]).join("")}</d:prop></d:set></d:propertyupdate>`,
 			"0",
-			"rename",
+			"list change",
 		);
-		// A 207 can still refuse the property itself (a 403 propstat).
-		if (!ms.responses.some((r) => prop(r, DAV, "displayname")))
-			throw new CaldavError(403, "Nextcloud didn't accept the new name.");
+		for (const [ns, name] of props)
+			if (!ms.responses.some((r) => prop(r, ns, name)))
+				throw new CaldavError(
+					403,
+					"Nextcloud didn't accept the change to this list.",
+				);
 	}
 
-	/** Deletes a whole collection with everything in it. */
-	async deleteList(href: string): Promise<void> {
-		const res = await this.send("DELETE", href);
+	/**
+	 * Deletes a whole collection. Nextcloud moves an owner's list to the trash; for a list shared
+	 * with me it ends my share ("leave"). `forever` skips the trash.
+	 */
+	async deleteList(
+		href: string,
+		opts: { forever?: boolean } = {},
+	): Promise<void> {
+		const res = await this.send("DELETE", href, {
+			headers: opts.forever ? { "X-NC-CalDAV-No-Trashbin": "1" } : {},
+		});
 		if (res.status < 200 || res.status > 299) this.fail(res, "list deletion");
+	}
+
+	// ---------- trash bin ----------
+
+	/** How long Nextcloud keeps deleted items, in seconds (null if it doesn't say). */
+	async trashRetention(home: string): Promise<number | null> {
+		const ms = await this.xml(
+			"PROPFIND",
+			`${home.replace(/\/*$/, "/")}trashbin/`,
+			`<d:propfind xmlns:d="DAV:" xmlns:nc="${NC}"><d:prop><nc:trash-bin-retention-duration/></d:prop></d:propfind>`,
+			"0",
+			"trash listing",
+		);
+		const v = Number(
+			prop(
+				ms.responses[0] ?? { href: "", status: null, props: new Map() },
+				NC,
+				"trash-bin-retention-duration",
+			)?.text.trim(),
+		);
+		return Number.isFinite(v) && v > 0 ? v : null;
+	}
+
+	/** Lists in the trash (they stay in the home, typed nc:deleted-calendar). */
+	async deletedLists(home: string): Promise<
+		{
+			href: string;
+			name: string;
+			color: string | null;
+			deletedAt: string | null;
+		}[]
+	> {
+		const ms = await this.xml(
+			"PROPFIND",
+			home,
+			`<d:propfind xmlns:d="DAV:" xmlns:nc="${NC}" xmlns:a="${APPLE}" xmlns:c="${CALDAV}"><d:prop><d:resourcetype/><d:displayname/><a:calendar-color/><nc:deleted-at/><c:supported-calendar-component-set/></d:prop></d:propfind>`,
+			"1",
+			"trash listing",
+		);
+		return ms.responses.flatMap((r) => {
+			const types = prop(r, DAV, "resourcetype")?.children ?? [];
+			if (!types.some((t) => t.ns === NC && t.name === "deleted-calendar"))
+				return [];
+			const comps = kids(
+				prop(r, CALDAV, "supported-calendar-component-set"),
+				CALDAV,
+				"comp",
+			).map(attrName);
+			if (comps.length && !comps.includes("VTODO")) return [];
+			this.url(r.href);
+			return [
+				{
+					href: r.href,
+					name:
+						prop(r, DAV, "displayname")?.text.trim() ||
+						decodedPath(r.href).split("/").pop() ||
+						"List",
+					color: normaliseColor(prop(r, APPLE, "calendar-color")?.text),
+					deletedAt: prop(r, NC, "deleted-at")?.text.trim() || null,
+				},
+			];
+		});
+	}
+
+	/**
+	 * Tasks in the trash. Their text comes from REPORT calendar-data, which loses "\r": it is only
+	 * shown, never written (restoring is a MOVE of the stored object).
+	 */
+	async deletedTasks(home: string): Promise<
+		{
+			href: string;
+			text: string;
+			deletedAt: string | null;
+			calendarUri: string | null;
+		}[]
+	> {
+		const objects = `${home.replace(/\/*$/, "/")}trashbin/objects/`;
+		const ms = await this.xml(
+			"REPORT",
+			objects,
+			`<?xml version="1.0" encoding="utf-8"?><c:calendar-query xmlns:d="DAV:" xmlns:c="${CALDAV}" xmlns:nc="${NC}"><d:prop><d:getetag/><c:calendar-data/><nc:deleted-at/><nc:calendar-uri/></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VTODO"/></c:comp-filter></c:filter></c:calendar-query>`,
+			"1",
+			"trash listing",
+		);
+		return ms.responses.flatMap((r) => {
+			if (sameHref(r.href, objects)) return [];
+			this.member(objects, r.href);
+			return [
+				{
+					href: r.href,
+					text: prop(r, CALDAV, "calendar-data")?.text ?? "",
+					deletedAt: prop(r, NC, "deleted-at")?.text.trim() || null,
+					calendarUri: prop(r, NC, "calendar-uri")?.text.trim() || null,
+				},
+			];
+		});
+	}
+
+	/** Restores a list or task from the trash (MOVE to trashbin/restore/…, as the Tasks app does). */
+	async restore(href: string, home: string): Promise<void> {
+		const res = await this.send("MOVE", href, {
+			headers: {
+				Destination: this.url(
+					`${home.replace(/\/*$/, "/")}trashbin/restore/file`,
+				),
+			},
+		});
+		if (res.status < 200 || res.status > 299) this.fail(res, "restore");
+	}
+
+	/** Deletes a trashed task for good. */
+	async deleteForever(href: string): Promise<void> {
+		const res = await this.send("DELETE", href, {
+			headers: { "X-NC-CalDAV-No-Trashbin": "1" },
+		});
+		if (res.status < 200 || res.status > 299) this.fail(res, "delete");
 	}
 
 	/**
@@ -531,7 +694,7 @@ export class CaldavClient {
 	}
 
 	/** Refuses members that aren't directly inside the collection they were listed for. */
-	private member(collection: string, href: string): void {
+	member(collection: string, href: string): void {
 		this.url(href);
 		if (!memberOf(collection, href))
 			throw new CaldavError(

@@ -9,7 +9,7 @@ import {
 	type Listed,
 	principalKey,
 } from "./caldav.ts";
-import { AUTH_HELP, asCore, type Ctx, client } from "./ctx.ts";
+import { AUTH_HELP, type Ctx, client } from "./ctx.ts";
 import { CoreError } from "./errors.ts";
 import { TaskDocument } from "./ical.ts";
 import { assertWritable } from "./journal.ts";
@@ -183,7 +183,7 @@ async function syncList(
 }
 
 /** Creates or updates one list record per collection that holds tasks. */
-function upsertCollections(
+export function upsertCollections(
 	ctx: Ctx,
 	collections: Collection[],
 	principal: string | null = ctx.store.meta.principal,
@@ -242,92 +242,6 @@ export function assertConnectedWritable(ctx: Ctx): CaldavClient {
 	const dc = client(ctx);
 	assertWritable(ctx.store.settings);
 	return dc;
-}
-
-/** Makes a task list in Nextcloud and returns its href, read back from Nextcloud's listing. */
-export async function createList(
-	ctx: Ctx,
-	input: { name: string; color: string },
-): Promise<string> {
-	const dc = assertConnectedWritable(ctx);
-	let home = ctx.store.meta.home ?? "";
-	// A random slug never collides; Nextcloud shows the display name, not the slug.
-	const href = () => `${home.replace(/\/*$/, "/")}${crypto.randomUUID()}/`;
-	let at = "";
-	try {
-		if (!home) home = (await dc.discover()).home;
-		at = href();
-		await dc.createList(at, input.name, input.color);
-	} catch (err) {
-		asCore(err);
-	}
-	// The list exists from here on: a failed read-back must not invite making it twice.
-	let listed: Collection[] | null = null;
-	try {
-		listed = await dc.collections(home);
-	} catch (err) {
-		ctx.log.error(`Reading back a new list failed: ${(err as Error).message}`);
-	}
-	// A sync that listed the lists before this one would otherwise mark it gone.
-	await runs.get(ctx.store)?.inflight;
-	if (listed) upsertCollections(ctx, listed);
-	const path = (h: string) => h.replace(/\/*$/, "");
-	const r = ctx.store.lists().find((x) => path(x.href) === path(at));
-	if (!r)
-		throw new CoreError(
-			"unreachable",
-			`“${input.name}” is made in Nextcloud but couldn't be read back yet. It appears with the next sync; don't add it again.`,
-			{ sent: true },
-		);
-	return r.href;
-}
-
-/** Renames a list in Nextcloud, then here. */
-export async function renameList(
-	ctx: Ctx,
-	href: string,
-	name: string,
-): Promise<void> {
-	const dc = assertConnectedWritable(ctx);
-	const r = ctx.store.list(href);
-	if (!r) throw new CoreError("gone", "That list isn't here any more.");
-	if (!r.writable)
-		throw new CoreError(
-			"refused",
-			`“${r.name}” is shared with you view only: only its owner can rename it.`,
-		);
-	try {
-		await dc.rename(href, name);
-	} catch (err) {
-		asCore(err);
-	}
-	ctx.store.patchList(href, { name });
-}
-
-/** Deletes a task list in Nextcloud with its tasks, then here. */
-export async function deleteList(ctx: Ctx, href: string): Promise<void> {
-	const dc = assertConnectedWritable(ctx);
-	const r = ctx.store.list(href);
-	if (!r) throw new CoreError("gone", "That list isn't here any more.");
-	if (!r.writable)
-		throw new CoreError(
-			"refused",
-			`“${r.name}” is shared with you view only: only its owner can delete it.`,
-		);
-	// Deleting the collection would take its events too.
-	if (r.components.includes("VEVENT"))
-		throw new CoreError(
-			"refused",
-			`“${r.name}” also holds calendar events. Delete it in Nextcloud if you mean to.`,
-		);
-	try {
-		await dc.deleteList(href);
-	} catch (err) {
-		asCore(err);
-	}
-	// A sync that listed the lists before the delete would otherwise add it back.
-	await runs.get(ctx.store)?.inflight;
-	ctx.store.removeList(href);
 }
 
 // ---------- the sync run ----------
