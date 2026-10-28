@@ -1,0 +1,2 @@
+# Fixtures are exact bytes (CRLF, LF and mixed endings are the point).
+*.ics -text

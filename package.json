@@ -1,0 +1,31 @@
+{
+  "name": "desk-tasks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun web/scripts/build.ts",
+    "check": "bun run lint && bun run typecheck && bun test",
+    "check:py": "uv run ruff check src tests && uv run ruff format --check src tests && uv run ty check src && uv run pytest -q",
+    "lint": "biome check web",
+    "format": "biome check --write web",
+    "typecheck": "tsc -p .",
+    "test": "bun test",
+    "test:nextcloud": "bun web/test/nextcloud/run.ts",
+    "test:ui": "bun run build && bun test web/test/ui",
+    "screenshots": "bun run build && bun web/scripts/screenshots.ts",
+    "release": "bun run build && uv build"
+  },
+  "dependencies": {
+    "ical.js": "2.2.1",
+    "preact": "11.1.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.3",
+    "@types/bun": "1.4.4",
+    "axe-core": "4.14.0",
+    "fake-indexeddb": "6.2.6",
+    "playwright-core": "1.63.0",
+    "typescript": "7.0.2"
+  }
+}

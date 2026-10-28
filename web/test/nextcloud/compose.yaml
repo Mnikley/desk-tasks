@@ -1,0 +1,14 @@
+# Throwaway Nextcloud for the desk-tasks tests. Never point this at real data.
+# Pinned to 35.0.2 (the user's version on 2026-10-28). `bun run test:nextcloud --image
+# nextcloud:34.0.x-apache` runs the same suite against 34.
+name: desk-tasks-nextcloud-test
+services:
+  nextcloud:
+    image: ${NEXTCLOUD_IMAGE:-nextcloud:35.0.2-apache}
+    environment:
+      SQLITE_DATABASE: nextcloud
+      NEXTCLOUD_ADMIN_USER: admin
+      NEXTCLOUD_ADMIN_PASSWORD: admin-password-123
+      NEXTCLOUD_TRUSTED_DOMAINS: "127.0.0.1 localhost"
+    tmpfs: [/var/www/html/data]
+    ports: ["127.0.0.1:18012:80"]
