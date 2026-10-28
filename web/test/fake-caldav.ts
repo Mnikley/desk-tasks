@@ -157,6 +157,12 @@ export class FakeCaldav {
 			});
 			return new Response(null, { status: 201 });
 		}
+		if (
+			req.method === "POST" &&
+			this.collections.has(path) &&
+			body.includes("share")
+		)
+			return this.share(this.collections.get(path) as Collection, body);
 		if (req.method === "PROPPATCH") {
 			const c = this.collections.get(path);
 			if (!c) return new Response("not found", { status: 404 });
@@ -239,6 +245,57 @@ export class FakeCaldav {
 		return new Response("unsupported", { status: 405 });
 	}
 
+	/** People Nextcloud knows (principal-property-search); "u" is me. */
+	readonly people: { key: string; name: string; group?: boolean }[] = [
+		{ key: "principals/users/u", name: "U" },
+		{ key: "principals/users/alice", name: "Alice" },
+		{ key: "principals/users/bob", name: "Bob" },
+		{ key: "principals/groups/team", name: "team", group: true },
+	];
+
+	private searchPrincipals(body: string): Response {
+		const q = (/<d:match>(.*?)<\/d:match>/.exec(body)?.[1] ?? "").toLowerCase();
+		const rows = this.people
+			.filter((p) => p.name.toLowerCase().includes(q))
+			.map((p) =>
+				ok(
+					`/remote.php/dav/${p.key}/`,
+					`<d:displayname>${p.name}</d:displayname><cal:calendar-user-type>${p.group ? "GROUP" : "INDIVIDUAL"}</cal:calendar-user-type><d:principal-URL><d:href>/remote.php/dav/${p.key}/</d:href></d:principal-URL>`,
+				),
+			);
+		return ms(rows.join(""));
+	}
+
+	/** <o:share> set/remove; like Nextcloud, an unknown sharee is skipped with a 200. */
+	private share(c: Collection, body: string): Response {
+		const users = new Map(
+			[
+				...c.invite.matchAll(
+					/<o:user><d:href>(.*?)<\/d:href>.*?<o:access>(.*?)<\/o:access><\/o:user>/g,
+				),
+			].map((m) => [m[1] ?? "", (m[2] ?? "").includes("read-write")]),
+		);
+		for (const m of body.matchAll(
+			/<o:set><d:href>(.*?)<\/d:href>(<o:read-write\/>)?<\/o:set>/g,
+		)) {
+			const href = m[1] ?? "";
+			if (this.people.some((p) => `principal:${p.key}` === href))
+				users.set(href, !!m[2]);
+		}
+		for (const m of body.matchAll(
+			/<o:remove><d:href>(.*?)<\/d:href><\/o:remove>/g,
+		))
+			users.delete(m[1] ?? "");
+		c.invite = [...users]
+			.map(([href, rw]) => {
+				const name =
+					this.people.find((p) => `principal:${p.key}` === href)?.name ?? href;
+				return `<o:user><d:href>${href}</d:href><o:common-name>${name}</o:common-name><o:invite-accepted/><o:access>${rw ? "<o:read-write/>" : "<o:read/>"}</o:access></o:user>`;
+			})
+			.join("");
+		return new Response(null, { status: 200 });
+	}
+
 	private propfind(path: string, depth: string, body: string): Response {
 		if (path === "/remote.php/dav/")
 			return ms(
@@ -277,7 +334,7 @@ export class FakeCaldav {
 			return ms(
 				ok(
 					path,
-					"<d:resourcetype><d:collection/><cal:calendar/></d:resourcetype>",
+					`<d:resourcetype><d:collection/><cal:calendar/></d:resourcetype><o:invite>${list.invite}</o:invite>`,
 				) + rows.join(""),
 			);
 		}
@@ -288,6 +345,11 @@ export class FakeCaldav {
 	}
 
 	private report(path: string, body: string): Response {
+		if (
+			path === "/remote.php/dav/" &&
+			body.includes("principal-property-search")
+		)
+			return this.searchPrincipals(body);
 		const list = this.collections.get(path);
 		if (!list) return new Response("not found", { status: 404 });
 		if (this.noSyncCollection)

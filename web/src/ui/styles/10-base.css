@@ -1149,3 +1149,52 @@ kbd {
 	line-height: 16px;
 	color: var(--muted);
 }
+
+/* ---------- drag and drop ---------- */
+
+body.dragging,
+body.dragging * {
+	/* biome-ignore lint/complexity/noImportantStyles: the drag cursor wins over every control's own */
+	cursor: grabbing !important;
+}
+.drag-ghost {
+	position: fixed;
+	left: 0;
+	top: 0;
+	z-index: 60;
+	max-width: 240px;
+	padding: 4px 10px;
+	border-radius: var(--radius-s);
+	background: var(--surface-raised);
+	border: 1px solid var(--hairline);
+	box-shadow: 0 6px 20px var(--shadow);
+	font-size: 13px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	pointer-events: none;
+}
+.drop-line {
+	position: absolute;
+	right: var(--pad);
+	height: 2px;
+	border-radius: 1px;
+	background: var(--accent);
+	pointer-events: none;
+	z-index: 2;
+}
+.drop-line::before {
+	content: "";
+	position: absolute;
+	left: -4px;
+	top: -3px;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	border: 2px solid var(--accent);
+	background: var(--surface);
+}
+.menu-item.drop-target {
+	background: var(--selected);
+	box-shadow: inset 0 0 0 2px var(--accent);
+}

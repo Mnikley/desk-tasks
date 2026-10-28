@@ -49,6 +49,8 @@ export async function openApp(
 		stub?: Partial<StubOptions>;
 		scheme?: "light" | "dark";
 		seed?: boolean;
+		/** Lets a test inject axe-core (the app's CSP refuses inline scripts). */
+		bypassCSP?: boolean;
 	} = {},
 ): Promise<Opened> {
 	const fake = new FakeCaldav();
@@ -59,6 +61,7 @@ export async function openApp(
 		colorScheme: opts.scheme ?? "light",
 		timezoneId: TZ,
 		locale: "en-GB",
+		bypassCSP: opts.bypassCSP ?? false,
 	});
 	const page = await ctx.newPage();
 	const errors: string[] = [];

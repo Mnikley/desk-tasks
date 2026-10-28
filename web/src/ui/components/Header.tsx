@@ -270,6 +270,11 @@ function Switcher(props: { palette: boolean; onClose: () => void }) {
 									aria-selected={i === at}
 									aria-current={e.key === current ? "page" : undefined}
 									title={e.key.startsWith("cmd:") ? undefined : e.hint}
+									data-drop-list={
+										e.view?.kind === "list" && !e.readOnly
+											? e.view.href
+											: undefined
+									}
 									onMouseEnter={() => setAt(i)}
 									onClick={() => pick(e)}
 								>

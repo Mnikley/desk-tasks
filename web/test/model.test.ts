@@ -323,3 +323,63 @@ describe("due chips", () => {
 		).toMatchObject({ text: "▷ Fri", tone: "muted" });
 	});
 });
+
+describe("drop place", () => {
+	const r = (
+		summary: string,
+		depth: number,
+	): import("../src/ui/model.ts").Row => ({
+		task: task({ summary }),
+		depth,
+		crumb: null,
+		expanded: null,
+		progress: null,
+		doneKids: 0,
+	});
+	test("depth follows the pointer within what the neighbours allow; index counts siblings", async () => {
+		const { dropPlace } = await import("../src/ui/model.ts");
+		const rows = [r("A", 0), r("A1", 1), r("A2", 1), r("B", 0), r("C", 0)];
+		const dragged = new Set([(rows[4] as { task: TaskView }).task.id]); // C
+		// Between A2 and B: depth 0..2.
+		expect(dropPlace(rows, dragged, 3, 0)).toMatchObject({
+			parent: null,
+			index: 1,
+			depth: 0,
+		});
+		expect(dropPlace(rows, dragged, 3, 1)).toMatchObject({
+			parent: rows[0]?.task,
+			index: 2,
+			depth: 1,
+		});
+		expect(dropPlace(rows, dragged, 3, 2)).toMatchObject({
+			parent: rows[2]?.task,
+			index: 0,
+			depth: 2,
+		});
+		expect(dropPlace(rows, dragged, 3, 9)).toMatchObject({ depth: 2 });
+		// Between A and A1: at least depth 1 (A1 stays under A).
+		expect(dropPlace(rows, dragged, 1, 0)).toMatchObject({
+			parent: rows[0]?.task,
+			index: 0,
+			depth: 1,
+		});
+		// At the top: always top level.
+		expect(dropPlace(rows, dragged, 0, 3)).toMatchObject({
+			parent: null,
+			index: 0,
+			depth: 0,
+		});
+	});
+
+	test("a dragged task's own subtree isn't a target", async () => {
+		const { dropPlace } = await import("../src/ui/model.ts");
+		const rows = [r("A", 0), r("A1", 1), r("B", 0)];
+		const dragged = new Set([(rows[0] as { task: TaskView }).task.id]);
+		// Just below A1 (inside A's subtree) is the same place as above B.
+		expect(dropPlace(rows, dragged, 2, 1)).toMatchObject({
+			parent: null,
+			index: 0,
+			depth: 0,
+		});
+	});
+});

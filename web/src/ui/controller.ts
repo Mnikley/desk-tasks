@@ -192,6 +192,15 @@ export class Controller {
 	private readonly savePrefs: (p: UiPrefs) => void;
 	readonly version: string;
 	private readonly onLogout: () => void;
+	/** The reminder loop (main.tsx sets it; tests may leave it out). */
+	reminders: {
+		tick(): Promise<void>;
+		action(
+			a: "done" | "snooze-15m" | "snooze-1h" | "snooze-tomorrow" | "open",
+			href: string,
+		): Promise<void>;
+		updateTray(): void;
+	} | null = null;
 	private toastId = 0;
 	private undoStack: UndoEntry[] = [];
 	private redoEntry: UndoEntry | null = null;
@@ -433,6 +442,7 @@ export class Controller {
 		const r = await attempt(() => journaled(this.ctx, write));
 		this.settleSoon();
 		if (r.ok) {
+			void this.reminders?.tick();
 			const label = opts.done?.(r.value.result) ?? null;
 			if (r.value.steps.length) {
 				this.undoStack.push({
@@ -942,6 +952,108 @@ export class Controller {
 		});
 	}
 
+	/**
+	 * A drop in a list view: the tasks go under `parent` (null: top level) at `index` among its
+	 * open subtasks, in their order. A new parent is one PUT, the position the order rule's
+	 * writes. One undo group.
+	 */
+	async dropAt(
+		tasks: TaskView[],
+		to: { list: string; parent: TaskView | null; index: number },
+	): Promise<void> {
+		const block = this.writeBlock();
+		if (block) {
+			this.toast(block, { tone: "error" });
+			return;
+		}
+		const movable = tasks.filter((t) => !t.readOnly);
+		if (!movable.length) {
+			if (tasks[0]?.readOnly) this.toast(tasks[0].readOnly, { tone: "error" });
+			return;
+		}
+		if (movable.some((t) => t.list !== to.list)) {
+			await this.moveToList(movable, to.list);
+			return;
+		}
+		const first = movable[0] as TaskView;
+		const estimate = reorderPlan(
+			this.siblingsOf(to.list, to.parent?.uid ?? null).filter(
+				(s) => !movable.some((m) => m.id === s.id),
+			),
+			{ href: "", sortOrder: 0 },
+			to.index,
+		);
+		if (estimate.length + movable.length - 1 > CONFIRM_ABOVE)
+			if (
+				!(await this.confirm(
+					`Reordering here updates ${estimate.length + movable.length - 1} tasks in Nextcloud.`,
+					"Reorder",
+				))
+			)
+				return;
+		await this.act(
+			async (g) => {
+				for (const [i, m] of movable.entries()) {
+					const now =
+						this.tasks().find((x) => x.uid === m.uid && x.list === m.list) ?? m;
+					if (now.parentUid !== (to.parent?.uid ?? null))
+						await setParent(g, now.href, to.parent?.href ?? null);
+					const fresh =
+						this.tasks().find((x) => x.uid === m.uid && x.list === m.list) ??
+						now;
+					const sibs = this.siblingsOf(to.list, to.parent?.uid ?? null);
+					const plan = reorderPlan(sibs, fresh, to.index + i);
+					if (plan.length) await applyOrder(g, plan);
+				}
+			},
+			{
+				subject: movable.length === 1 ? first.summary : undefined,
+				done: () =>
+					to.parent
+						? `Moved ${movable.length === 1 ? `“${first.summary}”` : plural(movable.length, "task")} under “${to.parent.summary}”`
+						: null,
+			},
+		);
+		if (to.parent)
+			this.folds.set((m) => new Map(m).set(`task:${to.parent?.id}`, false));
+	}
+
+	/** Open tasks under one parent (null: top level) of a list, in My order. */
+	siblingsOf(list: string, parentUid: string | null): TaskView[] {
+		return this.tasks()
+			.filter((s) => s.list === list && s.parentUid === parentUid && isOpen(s))
+			.sort(compareManual);
+	}
+
+	/** A drop on an Upcoming day header: that due date, each keeping its time and form. */
+	async moveToDay(tasks: TaskView[], date: string): Promise<void> {
+		const block = this.writeBlock();
+		if (block) {
+			this.toast(block, { tone: "error" });
+			return;
+		}
+		const movable = tasks.filter((t) => !t.readOnly);
+		if (!movable.length) return;
+		await this.act(
+			(g) =>
+				eachOf(
+					movable,
+					"moved",
+					async (t) =>
+						void (await updateTask(
+							g,
+							t.href,
+							t.due ? { dueDate: date } : { due: { date, minutes: null } },
+						)),
+				),
+			{
+				subject: movable.length === 1 ? movable[0]?.summary : undefined,
+				done: () =>
+					`Moved ${movable.length === 1 ? `“${movable[0]?.summary}”` : plural(movable.length, "task")} to ${dueWords(date, this.today())}`,
+			},
+		);
+	}
+
 	moveBy(t: TaskView, by: number): void {
 		const sibs = this.siblings(t);
 		const at = sibs.findIndex((s) => s.id === t.id);
@@ -1137,6 +1249,7 @@ export class Controller {
 			outcome.error?.kind === "unreachable" &&
 			globalThis.navigator?.onLine === false;
 		this.syncState.set({ running: false, error: outcome.error, offline });
+		void this.reminders?.tick();
 		for (const href of outcome.gone) {
 			const name = this.ctx.store.list(href)?.name ?? "A list";
 			this.toast(`“${name}” is no longer shared with you.`);
@@ -1184,6 +1297,7 @@ export class Controller {
 		switch (ev.type) {
 			case "tick":
 				this.now.set(this.ctx.now());
+				void this.reminders?.tick();
 				// WebView timers may be throttled while covered: the tick is the heartbeat.
 				if (this.ctx.now() >= this.nextSyncAt) void this.syncNow(false);
 				return;
@@ -1222,6 +1336,7 @@ export class Controller {
 				void this.quit();
 				return;
 			case "toast-action":
+				void this.reminders?.action(ev.action, ev.href);
 				return;
 		}
 	}

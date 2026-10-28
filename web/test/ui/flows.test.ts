@@ -158,4 +158,86 @@ describe.skipIf(!UI)("UI flows (fake server)", () => {
 			await o.close();
 		}
 	});
+
+	test("drag: reorder writes the order rule, a move to the right nests, a day header sets the due date", async () => {
+		const o = await openApp({ height: 700 });
+		try {
+			const drag = async (
+				from: string,
+				to: string,
+				opts: { after?: boolean; dx?: number } = {},
+			) => {
+				const a = await row(o, from).boundingBox();
+				const b = await o.page.locator(to).first().boundingBox();
+				if (!a || !b) throw new Error("no box");
+				await o.page.mouse.move(a.x + 120, a.y + a.height / 2);
+				await o.page.mouse.down();
+				await o.page.mouse.move(a.x + 130, a.y + a.height / 2 + 8, {
+					steps: 3,
+				});
+				const y = opts.after ? b.y + b.height - 4 : b.y + 4;
+				await o.page.mouse.move(a.x + 120 + (opts.dx ?? 0), y, { steps: 8 });
+				await o.page.mouse.up();
+			};
+			await row(o, "Call Bob").waitFor();
+			await o.page.keyboard.press("Control+4"); // Work
+			await row(o, "Ideas for 2027").waitFor();
+			// Above "Send invoice" (order 100): Ideas gets 99, nothing else is written.
+			await drag("Ideas for 2027", '.row:has-text("Send invoice")');
+			await until(() =>
+				server(o, `${o.lists.work}ideas.ics`).includes("X-APPLE-SORT-ORDER:99"),
+			);
+			expect(o.fake.log.filter((l) => l.startsWith("PUT"))).toEqual([
+				`PUT ${o.lists.work}ideas.ics`,
+			]);
+			// Below "Water the office plants", one indent to the right: a subtask of it.
+			await drag("Book flights", '.row:has-text("Water the office plants")', {
+				after: true,
+				dx: 24,
+			});
+			await until(() =>
+				server(o, `${o.lists.work}flights.ics`).includes("RELATED-TO:plants"),
+			);
+			// Upcoming: onto the "Tomorrow" header.
+			await o.page.keyboard.press("g");
+			await o.page.keyboard.press("u");
+			await row(o, "Pay rent").waitFor();
+			await drag("Pay rent", '.group-head[data-date="2026-10-29"]');
+			await until(() =>
+				server(o, `${o.lists.home}rent.ics`).includes(
+					"DUE;VALUE=DATE:20261029",
+				),
+			);
+			expect(o.errors).toEqual([]);
+		} finally {
+			await o.close();
+		}
+	});
+
+	test("drag in Today explains itself and writes nothing; view-only rows don't drag", async () => {
+		const o = await openApp();
+		try {
+			await row(o, "Call Bob").waitFor();
+			const a = await row(o, "Fix the bike light").boundingBox();
+			const b = await row(o, "Send invoice").boundingBox();
+			if (!a || !b) throw new Error("no box");
+			await o.page.mouse.move(a.x + 120, a.y + 10);
+			await o.page.mouse.down();
+			await o.page.mouse.move(b.x + 120, b.y + 4, { steps: 8 });
+			await o.page.mouse.up();
+			await o.page
+				.locator(".toast", { hasText: "Today is sorted by time and priority" })
+				.waitFor();
+			const c = await row(o, "Oat milk").boundingBox();
+			if (!c) throw new Error("no box");
+			await o.page.mouse.move(c.x + 120, c.y + 10);
+			await o.page.mouse.down();
+			await o.page.mouse.move(c.x + 120, c.y - 80, { steps: 8 });
+			expect(await o.page.locator(".drag-ghost").count()).toBe(0);
+			await o.page.mouse.up();
+			expect(o.fake.log.filter((l) => l.startsWith("PUT"))).toEqual([]);
+		} finally {
+			await o.close();
+		}
+	});
 });

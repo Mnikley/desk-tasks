@@ -478,3 +478,51 @@ function shortDay(d: string, today: string): string {
 
 const clock = (m: number) =>
 	`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+/**
+ * Where a drag drops in a tree: before `rows[at]` (after the filter below), at the depth the
+ * pointer asks for within what the neighbours allow (no deeper than one below the row above,
+ * no shallower than the row below). The dragged tasks and their subtrees don't count.
+ * Returns the parent (null: top level) and the index among its open subtasks.
+ */
+export function dropPlace(
+	all: Row[],
+	dragged: ReadonlySet<number>,
+	at: number,
+	want: number,
+): { parent: TaskView | null; index: number; depth: number } {
+	const rows: Row[] = [];
+	let skipBelow: number | null = null;
+	let mapped = at;
+	for (const [i, r] of all.entries()) {
+		if (skipBelow !== null && r.depth > skipBelow) {
+			if (i < at) mapped--;
+			continue;
+		}
+		skipBelow = null;
+		if (dragged.has(r.task.id)) {
+			skipBelow = r.depth;
+			if (i < at) mapped--;
+			continue;
+		}
+		rows.push(r);
+	}
+	const prev = rows[mapped - 1];
+	const next = rows[mapped];
+	const maxD = prev ? prev.depth + 1 : 0;
+	const minD = Math.min(next ? next.depth : 0, maxD);
+	const depth = Math.max(minD, Math.min(maxD, want));
+	let parent: TaskView | null = null;
+	let parentAt = -1;
+	if (depth > 0)
+		for (let i = mapped - 1; i >= 0; i--)
+			if ((rows[i] as Row).depth === depth - 1) {
+				parent = (rows[i] as Row).task;
+				parentAt = i;
+				break;
+			}
+	let index = 0;
+	for (let i = parentAt + 1; i < mapped; i++)
+		if ((rows[i] as Row).depth === depth) index++;
+	return { parent, index, depth };
+}

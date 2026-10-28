@@ -18,6 +18,7 @@ import { AppContext } from "./components/context.ts";
 import { FirstRun } from "./components/FirstRun.tsx";
 import { Controller, type UiPrefs } from "./controller.ts";
 import type { ViewId } from "./model.ts";
+import { type ReminderState, Reminders } from "./reminders.ts";
 
 const VERSION = "0.1.0";
 
@@ -116,6 +117,12 @@ export async function boot(
 		</AppContext.Provider>,
 		root,
 	);
+	const reminderState = db
+		? await loadKv<ReminderState>(db, "reminders").catch(() => undefined)
+		: undefined;
+	app.reminders = new Reminders(app, reminderState, (st) => {
+		if (db) void saveKv(db, "reminders", st).catch(() => undefined);
+	});
 	if (!settings.firstRunDone) app.sheet.set({ kind: "welcome" });
 	void app.syncNow(true);
 	void app.listen();

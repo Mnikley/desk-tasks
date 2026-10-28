@@ -9,6 +9,7 @@ import { type NewRowAt, plural } from "../controller.ts";
 import { dueChip, type Group, type Row, viewKey } from "../model.ts";
 import { useStore } from "../store.ts";
 import { useApp } from "./context.ts";
+import { useDrag } from "./drag.ts";
 import {
 	Bell,
 	Check,
@@ -49,6 +50,7 @@ function Tasks() {
 	const mixed = view.kind === "today" || view.kind === "upcoming";
 	const scroller = useRef<HTMLDivElement>(null);
 	const [below, setBelow] = useState(0);
+	useDrag(app, scroller);
 
 	// Keep the highlighted row in view (clear of the sticky parts) and focused when summoned.
 	useLayoutEffect(() => {
@@ -92,29 +94,36 @@ function Tasks() {
 		<div
 			class={`scroll${below ? " overflows" : ""}`}
 			ref={scroller}
-			role="treegrid"
-			aria-label={`${app.viewTitle(view)} tasks`}
-			aria-multiselectable="true"
 			data-view={viewKey(view)}
 			data-tree={view.kind === "list" || view.kind === "all" ? "" : undefined}
 		>
 			{empty ? (
 				<EmptyState doneToday={model.doneToday} />
 			) : (
-				model.groups.map((g) => (
-					<GroupView
-						key={g.key}
-						group={g}
-						lists={lists}
-						mixed={mixed}
-						lingering={lingering}
-						highlight={highlight}
-						selection={selection}
-						showHead={g.title !== null}
-					/>
-				))
+				<div
+					role="treegrid"
+					aria-label={`${app.viewTitle(view)} tasks`}
+					aria-multiselectable="true"
+				>
+					{model.groups.map((g) => (
+						<GroupView
+							key={g.key}
+							group={g}
+							lists={lists}
+							mixed={mixed}
+							lingering={lingering}
+							highlight={highlight}
+							selection={selection}
+							showHead={g.title !== null}
+						/>
+					))}
+				</div>
 			)}
-			{below > 0 && !summoned && <div class="more-below">+{below} more</div>}
+			{below > 0 && !summoned && (
+				<div class="more-below" aria-hidden="true">
+					+{below} more
+				</div>
+			)}
 		</div>
 	);
 }
@@ -142,20 +151,24 @@ function GroupView(props: {
 	return (
 		<div role="rowgroup" data-group={g.key}>
 			{props.showHead && (
-				<button
-					type="button"
-					class="group-head"
-					data-kind={g.kind}
-					data-date={g.date}
-					data-empty={g.rows.length === 0 ? "" : undefined}
-					aria-expanded={!g.folded}
-					onClick={() => app.toggleFold(foldKey, g.folded)}
-				>
-					<Chevron open={!g.folded} size={12} />
-					{list && <span class="list-dot" style={dotStyle(list)} />}
-					<span class="label">{g.title}</span>
-					{g.count > 0 && <span class="n">{g.count}</span>}
-				</button>
+				<div role="row" class="group-row" aria-expanded={!g.folded}>
+					<div role="columnheader" aria-colspan={3}>
+						<button
+							type="button"
+							class="group-head"
+							data-kind={g.kind}
+							data-date={g.date}
+							data-empty={g.rows.length === 0 ? "" : undefined}
+							aria-expanded={!g.folded}
+							onClick={() => app.toggleFold(foldKey, g.folded)}
+						>
+							<Chevron open={!g.folded} size={12} />
+							{list && <span class="list-dot" style={dotStyle(list)} />}
+							<span class="label">{g.title}</span>
+							{g.count > 0 && <span class="n">{g.count}</span>}
+						</button>
+					</div>
+				</div>
 			)}
 			{!g.folded &&
 				withNewRow(g, app.newRowAt.get()).map((r) =>

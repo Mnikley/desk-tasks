@@ -10,6 +10,8 @@ export function SheetFrame(props: {
 	children: ComponentChildren;
 	foot?: ComponentChildren;
 	/** Esc asks first (unsaved changes) when this returns false. */
+	/** The body only scrolls (nothing to focus in it): it takes focus so the keys scroll it. */
+	scrollOnly?: boolean;
 	/** Extra keys for the whole sheet (Ctrl+Enter saves). */
 	onKeyDown?: (e: KeyboardEvent) => void;
 }) {
@@ -54,7 +56,19 @@ export function SheetFrame(props: {
 					<Close />
 				</button>
 			</div>
-			<div class="sheet-body">{props.children}</div>
+			<div
+				class="sheet-body"
+				{...(props.scrollOnly
+					? {
+							tabIndex: 0,
+							role: "region",
+							"aria-label": props.title,
+							"data-autofocus": "",
+						}
+					: {})}
+			>
+				{props.children}
+			</div>
 			{props.foot && <div class="sheet-foot">{props.foot}</div>}
 		</div>
 	);

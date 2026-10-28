@@ -46,7 +46,7 @@ function ShortcutSheet(props: { onClose: () => void }) {
 	const app = useApp();
 	const singles = app.settings.get().singleKeyShortcuts;
 	return (
-		<SheetFrame title="Keyboard shortcuts" onClose={props.onClose}>
+		<SheetFrame title="Keyboard shortcuts" onClose={props.onClose} scrollOnly>
 			{!singles && (
 				<p class="help">
 					Single-key shortcuts are off (Settings). The ones with Ctrl, Alt or

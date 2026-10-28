@@ -60,6 +60,8 @@ export const CONTRAST_PAIRS: [string, string, number][] = [
 		["focus", bg, 3],
 	]),
 	["warn", "surface", 4.5],
+	// Toasts: surface-coloured text on ink.
+	["surface", "ink", 4.5],
 	["accent-ink", "accent", 4.5],
 ];
 
