@@ -21,6 +21,13 @@ import {
 	type TaskFields,
 } from "./ical.ts";
 import { addJournal, haltWrites, undoable } from "./journal.ts";
+import {
+	advance,
+	type RepeatRule,
+	rruleOf,
+	WEEKDAYS,
+	withCount,
+} from "./recurrence.ts";
 import type {
 	JournalOp,
 	ListRecord,
@@ -37,7 +44,7 @@ import {
 	taskRow,
 	taskView,
 } from "./tasks.ts";
-import { fmtDateNumeric, isDate } from "./time.ts";
+import { fmtDateNumeric, isDate, zoned } from "./time.ts";
 import {
 	TASK_PRIORITIES,
 	TASK_STATUSES,
@@ -66,6 +73,13 @@ export interface Change {
 	progress?: number;
 	/** X-APPLE-SORT-ORDER (manual order; see order.ts for the rule that picks it). */
 	order?: number;
+	/** Repeat rule (the editor's subset); null stops repeating. Needs a due or start date. */
+	repeat?: RepeatRule | null;
+	/**
+	 * With status COMPLETED on a repeating task: complete it for good instead of moving it to
+	 * its next occurrence (a recurring subtask inside a completing parent).
+	 */
+	close?: boolean;
 }
 
 export interface CreateInput extends Change {
@@ -83,7 +97,13 @@ const TOUCHES: Record<keyof Change, (f: TaskFields) => unknown> = {
 	due: (f) => f.due,
 	dueDate: (f) => f.due,
 	priority: (f) => f.priority,
-	status: (f) => [f.status, f.completed, f.percent],
+	// Completing a repeating task moves its dates and COUNT too.
+	status: (f) => [
+		f.status,
+		f.completed,
+		f.percent,
+		...(f.rrule ? [f.due, f.start, f.rrule] : []),
+	],
 	tags: (f) => f.categories,
 	start: (f) => f.start,
 	pinned: (f) => f.pinned,
@@ -93,6 +113,8 @@ const TOUCHES: Record<keyof Change, (f: TaskFields) => unknown> = {
 	// A progress change writes STATUS too, so a status change elsewhere overlaps it.
 	progress: (f) => [f.status, f.completed, f.percent],
 	order: (f) => f.sortOrder,
+	repeat: (f) => [f.rrule, f.repeatFromCompletion],
+	close: (f) => [f.status, f.completed, f.percent],
 };
 
 function invalid(message: string): never {
@@ -138,6 +160,22 @@ function validate(c: Change): Change {
 		if (out.url.length > 2000 || /\s/.test(out.url))
 			invalid("That link isn't a valid address.");
 	}
+	if (c.repeat) {
+		const r = c.repeat;
+		if (!["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(r.freq))
+			invalid("Unknown repeat.");
+		if (!Number.isInteger(r.interval) || r.interval < 1 || r.interval > 999)
+			invalid("Repeat every 1 to 999.");
+		if (r.byDay.some((d) => !(WEEKDAYS as readonly string[]).includes(d)))
+			invalid("Unknown weekday.");
+		if (
+			r.end.kind === "count" &&
+			(!Number.isInteger(r.end.count) || r.end.count < 1 || r.end.count > 999)
+		)
+			invalid("Repeat 1 to 999 times.");
+		if (r.end.kind === "until" && !isDate(r.end.date))
+			invalid("That end date isn't a valid date.");
+	}
 	if (c.order !== undefined && (!Number.isSafeInteger(c.order) || c.order < 0))
 		invalid("That position isn't valid.");
 	if (
@@ -173,7 +211,30 @@ export function applyChange(ctx: Ctx, text: string, c: Change): string {
 		doc.setDescription(c.description);
 	if (c.priority !== undefined) doc.setPriority(c.priority);
 	if (c.tags !== undefined) doc.setCategories([...new Set(c.tags)]);
-	if (c.status !== undefined) doc.setStatus(c.status, ctx.now());
+	if (c.status !== undefined) {
+		const next =
+			c.status === "COMPLETED" &&
+			f.rrule &&
+			!c.close &&
+			f.status !== "COMPLETED"
+				? advance(
+						f.rrule,
+						{ due: f.due, start: f.start },
+						{
+							fromCompletion: f.repeatFromCompletion,
+							completedOn: zoned(ctx.now(), ctx.tz).date,
+							tz: ctx.tz,
+						},
+					)
+				: null;
+		if (next && f.rrule) {
+			// Same VTODO, next occurrence: dates move, COUNT counts down, it is open again.
+			doc.openForNext();
+			if (next.due) doc.setDue(next.due);
+			if (next.start) doc.setStart(next.start);
+			if (next.count !== null) doc.setRRule(withCount(f.rrule, next.count));
+		} else doc.setStatus(c.status, ctx.now());
+	}
 	if (c.progress !== undefined) doc.setProgress(c.progress, ctx.now());
 	if (c.pinned !== undefined) doc.setPinned(c.pinned);
 	if (c.order !== undefined) doc.setSortOrder(c.order);
@@ -217,6 +278,27 @@ export function applyChange(ctx: Ctx, text: string, c: Change): string {
 	}
 	if (dueChanged) doc.setDue(due ?? null);
 	if (startChanged) doc.setStart(start ?? null);
+	if (c.repeat !== undefined) {
+		if (c.repeat === null) {
+			doc.setRRule(null);
+			doc.setRepeatFromCompletion(false);
+		} else {
+			const anchor = finalDue ?? finalStart;
+			if (!anchor) invalid("Set a due date to repeat.");
+			doc.setRRule(rruleOf(c.repeat, anchor, ctx.tz));
+			doc.setRepeatFromCompletion(c.repeat.fromCompletion);
+		}
+	} else if (
+		f.rrule &&
+		(dueChanged || startChanged) &&
+		!finalDue &&
+		!finalStart
+	) {
+		// Without dates a task can't repeat: the rule goes too (the Tasks app does the same;
+		// the UI asks first).
+		doc.setRRule(null);
+		doc.setRepeatFromCompletion(false);
+	}
 	if (doc.toString() === original) return text;
 	doc.touch(ctx.now());
 	return doc.toString();

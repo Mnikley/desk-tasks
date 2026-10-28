@@ -81,7 +81,7 @@ describe("task list", () => {
 		);
 	});
 
-	test("view-only lists and recurring tasks say why", async () => {
+	test("view-only lists and tasks with occurrence overrides say why", async () => {
 		await seed(["planify-task.ics"], { writable: false });
 		expect(byUid(PLANIFY).readOnly).toContain("view only");
 		ctx.store.patchList(LIST, { writable: true });
@@ -92,13 +92,13 @@ describe("task list", () => {
 				etag: '"r"',
 				uid: "rec",
 				notUtf8: false,
-				ics: "BEGIN:VCALENDAR\r\nBEGIN:VTODO\r\nUID:rec\r\nSUMMARY:Water plants\r\nRRULE:FREQ=WEEKLY\r\nEND:VTODO\r\nEND:VCALENDAR\r\n",
+				ics: "BEGIN:VCALENDAR\r\nBEGIN:VTODO\r\nUID:rec\r\nSUMMARY:Water plants\r\nRRULE:FREQ=WEEKLY\r\nEND:VTODO\r\nBEGIN:VTODO\r\nUID:rec\r\nRECURRENCE-ID:20261021T100000Z\r\nEND:VTODO\r\nEND:VCALENDAR\r\n",
 			},
 			0,
 		);
 		expect(byUid("rec")).toMatchObject({
 			recurring: true,
-			readOnly: expect.stringContaining("Recurring"),
+			readOnly: expect.stringContaining("changed in another app"),
 		});
 	});
 

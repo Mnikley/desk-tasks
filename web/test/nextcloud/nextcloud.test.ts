@@ -580,20 +580,47 @@ describe.skipIf(!enabled)("the core (real Nextcloud)", () => {
 		}
 	});
 
-	test("recurring tasks are read-only: nothing is sent", async () => {
+	test("a weekly COUNT task advances in place; RRULE + DUE without DTSTART is stored byte for byte", async () => {
 		const href = `${list}rec-${suffix}.ics`;
-		await putObject(
-			href,
-			`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:x\r\nBEGIN:VTODO\r\nUID:rec-${suffix}\r\nDTSTAMP:20261020T000000Z\r\nSUMMARY:Water plants\r\nDUE;VALUE=DATE:20261021\r\nRRULE:FREQ=WEEKLY\r\nEND:VTODO\r\nEND:VCALENDAR\r\n`,
-		);
+		const text = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:x\r\nBEGIN:VTODO\r\nUID:rec-${suffix}\r\nDTSTAMP:20261020T000000Z\r\nSUMMARY:Water plants\r\nDUE;VALUE=DATE:20261021\r\nRRULE:FREQ=WEEKLY;COUNT=3\r\nEND:VTODO\r\nEND:VCALENDAR\r\n`;
+		await putObject(href, text);
+		// The spec's open question: does Nextcloud rewrite an RRULE without DTSTART? It must not.
+		expect((await getObject(href))?.text).toBe(text);
 		await forced();
 		const t = tasks().find((x) => x.uid === `rec-${suffix}`);
-		expect(t?.readOnly).toContain("Recurring");
+		expect(t?.readOnly).toBeNull();
+		expect(t?.repeat?.text).toBe("Weekly · 3 more times");
+		const done = await ok(
+			attempt(() => updateTask(core.ctx, href, { status: "COMPLETED" })),
+		);
+		expect(done).toMatchObject({
+			status: "NEEDS-ACTION",
+			due: { date: "2026-10-28" },
+		});
+		const after = (await getObject(href))?.text ?? "";
+		const d = diff(text, after);
+		expect(d.added.map((l) => l.split(/[;:]/)[0]).sort()).toEqual([
+			"DTSTAMP",
+			"DUE",
+			"RRULE",
+			"STATUS",
+		]);
+		expect(after).toContain("RRULE:FREQ=WEEKLY;COUNT=2\r\n");
+		expect(after).not.toContain("DTSTART");
+	});
+
+	test("a repeating task with occurrence overrides is read-only: nothing is sent", async () => {
+		const href = `${list}ovr-${suffix}.ics`;
+		await putObject(
+			href,
+			`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:x\r\nBEGIN:VTODO\r\nUID:ovr-${suffix}\r\nDTSTAMP:20261020T000000Z\r\nDTSTART;VALUE=DATE:20261021\r\nSUMMARY:Series\r\nRRULE:FREQ=WEEKLY\r\nEND:VTODO\r\nBEGIN:VTODO\r\nUID:ovr-${suffix}\r\nDTSTAMP:20261020T000000Z\r\nRECURRENCE-ID;VALUE=DATE:20261028\r\nSUMMARY:Series (moved)\r\nEND:VTODO\r\nEND:VCALENDAR\r\n`,
+		);
+		await forced();
+		const t = tasks().find((x) => x.uid === `ovr-${suffix}`);
+		expect(t?.readOnly).toContain("changed in another app");
 		const n = proxy.writes().length;
 		const err = await failed(
-			attempt(() =>
-				updateTask(core.ctx, t?.href ?? "", { status: "COMPLETED" }),
-			),
+			attempt(() => updateTask(core.ctx, href, { status: "COMPLETED" })),
 		);
 		expect(err.kind).toBe("refused");
 		expect(proxy.writes().length).toBe(n);

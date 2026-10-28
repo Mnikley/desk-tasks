@@ -1,4 +1,5 @@
 // Tasks as the app shows them, parsed from the stored bytes (never a second model).
+import ICAL from "ical.js";
 import type { Ctx } from "./ctx.ts";
 import { CoreError } from "./errors.ts";
 import {
@@ -9,6 +10,7 @@ import {
 	TaskDocument,
 	type TaskFields,
 } from "./ical.ts";
+import { describeRule, type RepeatRule, ruleOf } from "./recurrence.ts";
 import type { ListRecord, TaskRecord } from "./store.ts";
 import { fmtClock } from "./time.ts";
 import type { TaskPriority, TaskStatus } from "./types.ts";
@@ -54,6 +56,8 @@ export interface TaskView {
 	/** Why the app won't change this task (read-only list, …), or null. */
 	readOnly: string | null;
 	recurring: boolean;
+	/** The repeat in words ("Weekly · Mon, Wed"), and the rule when the editor can show it. */
+	repeat: { text: string; rule: RepeatRule | null } | null;
 	/** CLASS: "PUBLIC", "CONFIDENTIAL" (show only busy), "PRIVATE", or another value as written. */
 	klass: string;
 	pinned: boolean;
@@ -137,8 +141,20 @@ export function readOnlyReason(
 		return `${ownerOf(list)} marked this task as private.`;
 	if (f.overrides)
 		return "This repeating task has occurrences changed in another app; shown read-only.";
-	if (f.recurring) return "Recurring task: shown read-only.";
+	if (f.extraDates)
+		return "This task repeats on extra or skipped dates set in another app; shown read-only.";
+	if (f.rrule && !readableRule(f.rrule))
+		return "Its repeat rule can't be read here; change it in another app.";
 	return null;
+}
+
+/** ical.js can iterate the rule (it has a FREQ it knows). */
+function readableRule(rrule: string): boolean {
+	try {
+		return !!ICAL.Recur.fromString(rrule).freq;
+	} catch {
+		return false;
+	}
 }
 
 /** Which app last wrote a task, from its PRODID (the sheet footer says "… in tasks.org"). */
@@ -187,6 +203,16 @@ function toView(
 			(created === null ? 0 : Math.round(created / 1000) - APPLE_EPOCH_S),
 		readOnly: readOnlyReason(row, list, f),
 		recurring: f.recurring,
+		repeat: f.rrule
+			? {
+					text: describeRule(f.rrule, due?.date ?? start?.date ?? null),
+					rule: ruleOf(
+						f.rrule,
+						(f.due ?? f.start)?.date ?? null,
+						f.repeatFromCompletion,
+					),
+				}
+			: null,
 		klass: f.klass,
 		pinned: f.pinned,
 		location: f.location,

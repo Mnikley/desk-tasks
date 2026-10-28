@@ -266,6 +266,12 @@ export interface TaskFields {
 	url: string;
 	/** PRODID of the VCALENDAR, "" when missing. */
 	prodid: string;
+	/** The RRULE value exactly as written, or null. */
+	rrule: string | null;
+	/** X-DESKTASKS-REPEAT-FROM:COMPLETION ("repeat from completion date"). */
+	repeatFromCompletion: boolean;
+	/** RDATE or EXDATE lines (extra or skipped dates; only shown, never edited). */
+	extraDates: boolean;
 }
 
 export class TaskDocument {
@@ -380,6 +386,11 @@ export class TaskDocument {
 			pinned: (this.value("X-PINNED") ?? "").trim().toLowerCase() === "true",
 			location: this.text("LOCATION"),
 			url: (this.value("URL") ?? "").trim(),
+			rrule: this.value("RRULE")?.trim() ?? null,
+			repeatFromCompletion:
+				(this.value("X-DESKTASKS-REPEAT-FROM") ?? "").trim().toUpperCase() ===
+				"COMPLETION",
+			extraDates: this.own("RDATE").length > 0 || this.own("EXDATE").length > 0,
 			prodid:
 				this.lines
 					.find((l) => l.path === "VCALENDAR" && l.name === "PRODID")
@@ -492,6 +503,27 @@ export class TaskDocument {
 	setUrl(s: string): void {
 		if (s === "") this.remove("URL");
 		else this.set("URL", s);
+	}
+
+	/** RRULE as given (built by recurrence.ts, or a COUNT change of the one written); null removes it. */
+	setRRule(value: string | null): void {
+		if (value === null) this.remove("RRULE");
+		else if (value !== this.value("RRULE")?.trim()) this.set("RRULE", value);
+	}
+
+	/** desk-tasks' own "repeat from completion date" (no other client stores it on the server). */
+	setRepeatFromCompletion(on: boolean): void {
+		if (this.fields().repeatFromCompletion === on) return;
+		if (on) this.set("X-DESKTASKS-REPEAT-FROM", "COMPLETION");
+		else this.remove("X-DESKTASKS-REPEAT-FROM");
+	}
+
+	/** A repeating task moved on to its next occurrence: open, no COMPLETED or PERCENT-COMPLETE. */
+	openForNext(): void {
+		if ((this.value("STATUS") ?? "").trim().toUpperCase() !== "NEEDS-ACTION")
+			this.set("STATUS", "NEEDS-ACTION");
+		this.remove("COMPLETED");
+		this.remove("PERCENT-COMPLETE");
 	}
 
 	/** X-APPLE-SORT-ORDER (manual order), an integer as every client writes it. */

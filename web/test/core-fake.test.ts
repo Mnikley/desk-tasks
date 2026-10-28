@@ -163,14 +163,17 @@ describe("412: a change made elsewhere meanwhile", () => {
 		expect(tasks()).toEqual([]);
 	});
 
-	test("made recurring elsewhere: refused, the task is read-only now", async () => {
+	test("given occurrence overrides elsewhere: refused, the task is read-only now", async () => {
 		task("a");
 		fake.edit(`${list}a.ics`, (t) =>
-			t.replace("STATUS", "RRULE:FREQ=WEEKLY\r\nSTATUS"),
+			t.replace(
+				"END:VCALENDAR",
+				"BEGIN:VTODO\r\nUID:a\r\nRECURRENCE-ID:20261021T100000Z\r\nSUMMARY:a once\r\nEND:VTODO\r\nEND:VCALENDAR",
+			),
 		);
 		const theirs = fake.get(`${list}a.ics`);
 		const res = await patch("a", { summary: "x" });
-		expect(!res.ok && res.error.message).toContain("Recurring");
+		expect(!res.ok && res.error.message).toContain("changed in another app");
 		expect(fake.get(`${list}a.ics`)).toBe(theirs);
 	});
 });
