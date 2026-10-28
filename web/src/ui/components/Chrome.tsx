@@ -111,17 +111,37 @@ export function Banners() {
 			</div>
 		);
 	const broken = app.lists().filter((l) => l.error && l.error.kind !== "gone");
-	if (broken.length && !sync.error)
+	if (broken.length && !sync.error) {
+		const one = broken.length === 1 ? broken[0]?.error : null;
+		const unreadable = broken.every((l) => l.error?.kind === "invalid");
 		return (
 			<div class="banner" role="status">
 				<Warning />
 				<span class="text">
-					{broken.length === 1
-						? `“${broken[0]?.name}” couldn't be synced. ${broken[0]?.error?.action ?? ""}`
-						: `${broken.length} lists couldn't be synced.`}
+					{one
+						? `${one.message} ${one.action}`
+						: unreadable
+							? `Tasks in ${broken.length} lists couldn't be read.`
+							: `${broken.length} lists couldn't be synced.`}
 				</span>
+				{unreadable && (
+					<span class="actions">
+						<button
+							type="button"
+							class="text-btn"
+							onClick={() =>
+								app.toast(
+									"The log names them: %LOCALAPPDATA%\\desk-tasks\\logs. They stay as they are in Nextcloud.",
+								)
+							}
+						>
+							Details
+						</button>
+					</span>
+				)}
 			</div>
 		);
+	}
 	return null;
 }
 

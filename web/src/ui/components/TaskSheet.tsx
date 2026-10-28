@@ -4,6 +4,7 @@
 // (Ctrl+Enter) sends one PUT with only what changed; leaving with changes keeps them in a
 // one-slot "Restore" toast; the draft rebases onto a fresher version from Nextcloud.
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { compareManual } from "../../core/order.ts";
 import type { TaskView } from "../../core/tasks.ts";
 import { fmtClock, fmtDayShort, zoned } from "../../core/time.ts";
 import type { Change } from "../../core/write.ts";
@@ -98,7 +99,8 @@ export function TaskSheet(props: { id: number; onClose: () => void }) {
 	const list = app.ctx.store.list(t.list);
 	const kids = app
 		.tasks()
-		.filter((k) => k.parentUid === t.uid && k.list === t.list);
+		.filter((k) => k.parentUid === t.uid && k.list === t.list)
+		.sort(compareManual);
 
 	const save = async () => {
 		if (!dirty) {
@@ -485,7 +487,19 @@ function Subtasks(props: { task: TaskView; kids: TaskView[] }) {
 						type="button"
 						class="menu-item"
 						style="padding: 0 4px; min-height: 28px"
+						title="Alt+↑/↓ move · Alt+→/← nest"
+						aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+ArrowRight Alt+ArrowLeft"
 						onClick={() => app.sheet.set({ kind: "task", id: k.id })}
+						onKeyDown={(e) => {
+							if (!e.altKey || k.readOnly) return;
+							if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+								e.preventDefault();
+								app.moveBy(k, e.key === "ArrowUp" ? -1 : 1, true);
+							} else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+								e.preventDefault();
+								void app.nest(k, e.key === "ArrowRight" ? 1 : -1);
+							}
+						}}
 					>
 						<span
 							class="grow"

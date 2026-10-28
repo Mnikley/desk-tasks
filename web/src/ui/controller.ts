@@ -491,9 +491,13 @@ export class Controller {
 					);
 					return;
 				}
+				// Discard: the change is dropped; the view already shows Nextcloud's version.
 				this.toast(`Couldn't save ${what}.`, {
 					tone: "error",
-					actions: opts.retry ? [{ label: "Retry", run: opts.retry }] : [],
+					actions: [
+						...(opts.retry ? [{ label: "Retry", run: opts.retry }] : []),
+						{ label: "Discard", run: () => {} },
+					],
 				});
 				return;
 			default:
@@ -921,8 +925,12 @@ export class Controller {
 	}
 
 	/** Alt+↑/↓ and drags: puts `t` at `index` among its siblings (Tasks app's order rule). */
-	async reorder(t: TaskView, index: number): Promise<void> {
-		if (this.view.get().kind !== "list" && this.view.get().kind !== "all") {
+	async reorder(t: TaskView, index: number, anyView = false): Promise<void> {
+		if (
+			!anyView &&
+			this.view.get().kind !== "list" &&
+			this.view.get().kind !== "all"
+		) {
 			this.toast(
 				`${this.viewTitle()} is sorted by time and priority. Reorder in a list.`,
 			);
@@ -1054,12 +1062,13 @@ export class Controller {
 		);
 	}
 
-	moveBy(t: TaskView, by: number): void {
+	/** Alt+↑/↓: one place up or down among its siblings (the detail sheet's subtasks: any view). */
+	moveBy(t: TaskView, by: number, anyView = false): void {
 		const sibs = this.siblings(t);
 		const at = sibs.findIndex((s) => s.id === t.id);
 		const to = at + by;
 		if (at < 0 || to < 0 || to >= sibs.length) return;
-		void this.reorder(t, to);
+		void this.reorder(t, to, anyView);
 	}
 
 	/** Opens the inline new row below the highlighted task, or as its subtask. */
