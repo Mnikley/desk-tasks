@@ -4,8 +4,24 @@
 
 import { addDays, fmtDate, isDate, parseClock, weekday } from "../core/time.ts";
 import type { TaskPriority } from "../core/types.ts";
+import {
+	datePhrase,
+	firstOccurrence,
+	nextWeekday,
+	type RepeatSpec,
+	repeatPhrase,
+	weekdayOf,
+} from "./dates.ts";
 
-export type TokenKind = "date" | "time" | "priority" | "tag" | "list";
+export type TokenKind =
+	| "date"
+	| "time"
+	| "priority"
+	| "tag"
+	| "list"
+	| "start"
+	| "repeat"
+	| "notes";
 
 /** A recognised token: [from, to) in the line. `ref` is the list href of a /list token. */
 export interface QuickToken {
@@ -131,6 +147,8 @@ export interface TaskList {
 	/** The list's href. */
 	href: string;
 	name: string;
+	/** False for view-only lists: they can't be picked with /list. */
+	writable?: boolean;
 }
 
 /** !1 is the highest; !4 is no priority (the levels tasks.org and Planify read alike). */
@@ -149,6 +167,11 @@ export interface TaskParse {
 	list: string | null;
 	/** Wall time in the app's zone; minutes null for an all-day due date. */
 	due: { date: string; minutes: number | null } | null;
+	/** Start date (`>date`). */
+	start: string | null;
+	repeat: RepeatSpec | null;
+	/** Everything after " // ". */
+	notes: string;
 	tokens: QuickToken[];
 	errors: string[];
 }
@@ -159,10 +182,24 @@ function readList(
 	lists: TaskList[],
 ): { href: string } | { error: string } {
 	const found = matchByName(lists, key, (l) => [l.name]);
-	if (!found) return { error: `No task list “${key}”.` };
+	if (!found) {
+		const guess = lists
+			.map((l) => ({ l, score: fuzzyScore(key, l.name) }))
+			.filter((x) => x.score !== null)
+			.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0]?.l;
+		return {
+			error: guess
+				? `No list “${key}”. Did you mean ${guess.name}?`
+				: `No list “${key}”.`,
+		};
+	}
 	if ("ambiguous" in found)
 		return {
 			error: `“/${key}” could be ${found.ambiguous.map((l) => l.name).join(" or ")}.`,
+		};
+	if (found.item.writable === false)
+		return {
+			error: `“${found.item.name}” is view only. Pick another list with /.`,
 		};
 	return { href: found.item.href };
 }
@@ -287,17 +324,15 @@ export function parseTaskTitle(
 	return out;
 }
 
-/** A due date: like an entry's date, except a weekday is the next one (today included). */
-function dueDate(tok: string, today: string): string | null {
-	const wd = WEEKDAY_WORDS[tok.toLowerCase()];
-	if (wd === undefined) return parseDateToken(tok, today);
-	return addDays(today, (wd - weekday(today) + 7) % 7);
-}
+/** Where the notes start: " // " with spaces on both sides, so URLs survive. */
+const NOTES = " // ";
 
 /**
- * A task line such as `Buy milk fri 17:00 /home !2 #errands`. Date, time, !priority, #tag (or
- * *tag) and /list are read anywhere (the first date and time only); quoted words, "#1" style
- * numbers and the rest are the summary. A time without a date is today.
+ * A quick-add line such as `Buy milk fri 17:00 /home !2 #errands // ask for oat`. Date (English
+ * and German, phrases like "next fri" or "in 3 Tagen"), time, `>start`, repeat ("every monday",
+ * "jeden Tag"), !priority, #tag (or *tag) and /list are read anywhere (the first of each); quoted
+ * words, "#1" style numbers and the rest are the summary; everything after " // " is the notes.
+ * A time without a date is today; a repeat without a date starts on its first occurrence.
  */
 export function parseTaskLine(
 	line: string,
@@ -309,19 +344,33 @@ export function parseTaskLine(
 		tags: [],
 		list: null,
 		due: null,
+		start: null,
+		repeat: null,
+		notes: "",
 		tokens: [],
 		errors: [],
 	};
+	const cut = notesAt(line);
+	const head = cut === -1 ? line : line.slice(0, cut);
+	if (cut !== -1) {
+		out.notes = line.slice(cut + NOTES.length).trim();
+		out.tokens.push({ from: cut + 1, to: line.length, kind: "notes" });
+	}
 	const text: string[] = [];
 	let date: string | null = null;
+	/** The weekday a one-word due date named ("fri"), counted from the start when there is one. */
+	let dueWeekday: number | null = null;
 	let minutes: number | null = null;
-	const all = words(line);
-	for (const w of all) {
+	const all = words(head);
+	// Phrases look at the plain words; a quoted word breaks a phrase.
+	const plain = all.map((w) => (w.literal ? "\u0000" : w.text));
+	for (let i = 0; i < all.length; i++) {
+		const w = all[i] as Word;
 		const tok = w.text;
-		const mark = (kind: TokenKind, ref?: string) =>
+		const mark = (kind: TokenKind, n = 1, ref?: string) =>
 			out.tokens.push({
 				from: w.from,
-				to: w.to,
+				to: (all[i + n - 1] as Word).to,
 				kind,
 				...(ref ? { ref } : {}),
 			});
@@ -346,15 +395,37 @@ export function parseTaskLine(
 			if ("error" in list) out.errors.push(list.error);
 			else {
 				out.list = list.href;
-				mark("list", list.href);
+				mark("list", 1, list.href);
 			}
 			continue;
 		}
-		const d: string | null = date === null ? dueDate(tok, ctx.today) : null;
-		if (d) {
-			date = d;
-			mark("date");
-			continue;
+		if (tok.startsWith(">") && tok.length > 1 && out.start === null) {
+			const p = datePhrase([tok.slice(1), ...plain.slice(i + 1)], 0, ctx.today);
+			if (p) {
+				out.start = p.date;
+				mark("start", p.n);
+				i += p.n - 1;
+				continue;
+			}
+		}
+		if (out.repeat === null) {
+			const r = repeatPhrase(plain, i);
+			if (r) {
+				out.repeat = r.repeat;
+				mark("repeat", r.n);
+				i += r.n - 1;
+				continue;
+			}
+		}
+		if (date === null) {
+			const p = datePhrase(plain, i, ctx.today);
+			if (p) {
+				date = p.date;
+				dueWeekday = p.n === 1 ? weekdayOf(tok, i === all.length - 1) : null;
+				mark("date", p.n);
+				i += p.n - 1;
+				continue;
+			}
 		}
 		if (minutes === null && /^\d{1,2}:\d{2}$/.test(tok)) {
 			const m = parseClock(tok);
@@ -367,10 +438,27 @@ export function parseTaskLine(
 		text.push(tok);
 	}
 	out.summary = text.join(" ");
+	if (date === null && out.repeat)
+		date = firstOccurrence(out.repeat, ctx.today);
+	// ">mon fri" is "start Monday, due that Friday".
+	if (out.start && date !== null && date < out.start && dueWeekday !== null)
+		date = nextWeekday(out.start, dueWeekday);
 	if (date !== null || minutes !== null)
 		out.due = { date: date ?? ctx.today, minutes };
+	if (out.start && out.due && out.due.date < out.start)
+		out.errors.push("The due date is before the start. Change one of them.");
 	if (!out.summary) out.errors.push("Add what the task is.");
 	return out;
+}
+
+/** Index of the " // " that starts the notes, outside quotes; -1 when there is none. */
+function notesAt(line: string): number {
+	let quoted = false;
+	for (let i = 0; i < line.length; i++) {
+		if (line[i] === '"') quoted = !quoted;
+		else if (!quoted && line.startsWith(NOTES, i)) return i;
+	}
+	return -1;
 }
 
 // ---------- fuzzy matching for commands ----------
