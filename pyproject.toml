@@ -27,6 +27,11 @@ packages = ["src/desk_tasks"]
 # The web bundle is built (bun run build) and gitignored; the wheel must still carry it.
 artifacts = ["src/desk_tasks/web/**"]
 
+[tool.hatch.build.targets.sdist]
+# uv build makes the wheel from the sdist, so the bundle has to be in the sdist too.
+artifacts = ["src/desk_tasks/web/**"]
+include = ["src/desk_tasks", "README.md", "pyproject.toml"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

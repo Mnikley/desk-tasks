@@ -13,7 +13,7 @@
     "test:nextcloud": "bun web/test/nextcloud/run.ts",
     "test:ui": "bun run build && DESK_TASKS_UI=1 bun test web/test/ui --timeout 60000",
     "screenshots": "bun run build && bun web/scripts/screenshots.ts",
-    "release": "bun run build && uv build"
+    "release": "bun run build && uv build && uv run pytest tests/test_packaging.py -q"
   },
   "dependencies": {
     "ical.js": "2.2.1",
