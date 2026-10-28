@@ -83,7 +83,7 @@ export interface Toast {
 }
 
 export type Sheet =
-	| { kind: "task"; id: number }
+	| { kind: "task"; id: number; restore?: boolean }
 	| { kind: "settings" }
 	| { kind: "list"; href: string }
 	| { kind: "new-list" }
@@ -171,6 +171,8 @@ export class Controller {
 	} | null>(null);
 	readonly summoned = createStore(false);
 	/** The view switcher; "palette" (Ctrl+K) lists the commands too. */
+	/** Where focus should go after a summon ("list" or "quick-add"); App does it. */
+	readonly focusRequest = createStore<null | "list" | "quick-add">(null);
 	readonly switcherOpen = createStore<false | "switcher" | "palette">(false);
 	/** The row being renamed inline (F2, double-click). */
 	readonly renaming = createStore<number | null>(null);
@@ -200,14 +202,21 @@ export class Controller {
 			href: string,
 		): Promise<void>;
 		updateTray(): void;
+		resumed(): void;
 	} | null = null;
 	private toastId = 0;
 	private undoStack: UndoEntry[] = [];
 	private redoEntry: UndoEntry | null = null;
 	private lingerTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Ticks being written right now, and the flushes queued one after another. */
+	private readonly flushing = new Set<number>();
+	/** Actions still being written (Undo waits for them). */
+	private readonly inflight = new Set<Promise<unknown>>();
+	private flushChain: Promise<void> = Promise.resolve();
 	private syncTimer: ReturnType<typeof setTimeout> | null = null;
 	private settleTimer: ReturnType<typeof setTimeout> | null = null;
 	private lastInteraction = 0;
+	private disposed = false;
 	private nextSyncAt = 0;
 	private readonly timers: boolean;
 	private cache: { version: number; tasks: TaskView[] } = {
@@ -439,7 +448,10 @@ export class Controller {
 		} = {},
 	): Promise<T | undefined> {
 		this.touch();
-		const r = await attempt(() => journaled(this.ctx, write));
+		const running = attempt(() => journaled(this.ctx, write));
+		this.inflight.add(running);
+		const r = await running;
+		this.inflight.delete(running);
 		this.settleSoon();
 		if (r.ok) {
 			void this.reminders?.tick();
@@ -506,6 +518,29 @@ export class Controller {
 	}
 
 	async undo(): Promise<void> {
+		// z during a linger takes the tick back; nothing was written yet.
+		const ticked = [...this.lingering.get()].filter(
+			(id) => !this.flushing.has(id),
+		);
+		if (ticked.length) {
+			this.clearLinger();
+			this.lingering.set(
+				(l) => new Set([...l].filter((x) => this.flushing.has(x))),
+			);
+			this.toast(
+				ticked.length === 1
+					? "Kept it open."
+					: `Kept ${ticked.length} tasks open.`,
+			);
+			return;
+		}
+		// An action still being written is the one Undo means.
+		await Promise.all([...this.inflight, this.flushChain]);
+		const block = this.writeBlock();
+		if (block) {
+			this.toast(block, { tone: "error" });
+			return;
+		}
 		const top = this.undoStack.pop();
 		if (!top) {
 			this.toast("Nothing to undo.");
@@ -539,6 +574,11 @@ export class Controller {
 			this.toast("Nothing to redo.");
 			return;
 		}
+		const block = this.writeBlock();
+		if (block) {
+			this.toast(block, { tone: "error" });
+			return;
+		}
 		this.redoEntry = null;
 		const r = await attempt(() => undoSteps(this.ctx, e.steps));
 		this.settleSoon();
@@ -565,6 +605,8 @@ export class Controller {
 		}
 		this.touch();
 		const now = this.lingering.get();
+		// Already being written: the tick can't be taken back any more (Undo can).
+		if (this.flushing.has(id)) return;
 		if (now.has(id)) {
 			const next = new Set(now);
 			next.delete(id);
@@ -594,19 +636,47 @@ export class Controller {
 		this.lingerTimer = null;
 	}
 
-	/** Writes the lingering ticks now (the linger ended, or the widget is dismissed or quits). */
+	/**
+	 * Writes the lingering ticks now (the linger ended, or the widget is dismissed or quits).
+	 * Each tick is written once: ticks already being written are left to that flush, and only
+	 * the flushed ones leave the lingering set when it is done (a tick made meanwhile stays).
+	 */
 	async flushLinger(): Promise<void> {
 		this.clearLinger();
-		const ids = [...this.lingering.get()];
-		if (!ids.length) return;
+		const ids = [...this.lingering.get()].filter(
+			(id) => !this.flushing.has(id),
+		);
+		if (!ids.length) {
+			await this.flushChain;
+			return;
+		}
+		for (const id of ids) this.flushing.add(id);
+		const run = this.flushChain.then(() => this.writeTicks(ids));
+		this.flushChain = run.catch(() => undefined);
+		await run;
+	}
+
+	private async writeTicks(ids: number[]): Promise<void> {
+		const done = () => {
+			for (const id of ids) this.flushing.delete(id);
+			this.lingering.set(
+				(l) => new Set([...l].filter((x) => !ids.includes(x))),
+			);
+		};
 		const tasks = ids
 			.map((id) => this.task(id))
-			.filter((t): t is TaskView => !!t);
+			.filter((t): t is TaskView => !!t && isOpen(t));
+		if (!tasks.length) {
+			done();
+			return;
+		}
 		const names = tasks.map((t) => t.summary);
 		await this.act(
 			async (g) => {
 				const results = [];
-				for (const t of tasks) results.push(await completeTask(g, t.href));
+				// By session id: an earlier group may have moved a task (new href).
+				for (const t of tasks)
+					results.push(await completeTask(g, (this.task(t.id) ?? t).href));
 				return results;
 			},
 			{
@@ -626,7 +696,7 @@ export class Controller {
 				},
 			},
 		);
-		this.lingering.set(new Set());
+		done();
 	}
 
 	// ---------- task actions ----------
@@ -640,30 +710,40 @@ export class Controller {
 		return ids.map((id) => this.task(id)).filter((t): t is TaskView => !!t);
 	}
 
-	/** Changes `tasks`; read-only ones are skipped and named. One undo group. */
+	/** The task as it is now (an earlier group may have moved it: same id, new href). */
+	fresh(t: TaskView): TaskView {
+		return this.task(t.id) ?? t;
+	}
+
+	/**
+	 * Changes `tasks`; read-only ones are skipped and named. One undo group. True when the
+	 * change was saved (false: blocked, refused or failed, and the reason was shown).
+	 */
 	async change(
 		tasks: TaskView[],
 		c: Change,
 		label: (n: number) => string,
-	): Promise<void> {
+	): Promise<boolean> {
 		const block = this.writeBlock();
 		if (block) {
 			this.toast(block, { tone: "error" });
-			return;
+			return false;
 		}
 		const writable = tasks.filter((t) => !t.readOnly);
 		const skipped = tasks.length - writable.length;
 		if (!writable.length) {
 			if (tasks[0]?.readOnly) this.toast(tasks[0].readOnly, { tone: "error" });
-			return;
+			return false;
 		}
-		await this.act(
-			(g) =>
-				eachOf(
+		const ok = await this.act(
+			async (g) => {
+				await eachOf(
 					writable,
 					"changed",
-					async (t) => void (await updateTask(g, t.href, c)),
-				),
+					async (t) => void (await updateTask(g, this.fresh(t).href, c)),
+				);
+				return true;
+			},
 			{
 				subject: writable.length === 1 ? writable[0]?.summary : undefined,
 				retry: () => void this.change(tasks, c, label),
@@ -671,6 +751,7 @@ export class Controller {
 					`${label(writable.length)}${skipped ? ` · ${plural(skipped, "view-only task")} skipped` : ""}`,
 			},
 		);
+		return ok === true;
 	}
 
 	rename(id: number, summary: string): void {
@@ -706,24 +787,27 @@ export class Controller {
 			this.toast(block, { tone: "error" });
 			return;
 		}
+		const writable = tasks.filter((t) => !t.readOnly);
+		if (!writable.length) {
+			if (tasks[0]?.readOnly) this.toast(tasks[0].readOnly, { tone: "error" });
+			return;
+		}
 		void this.act(
 			(g) =>
-				eachOf(
-					tasks.filter((t) => !t.readOnly),
-					"moved",
-					async (t) => {
-						const date = addDays(
-							t.due?.date ?? today,
-							t.due ? days : Math.max(0, days),
-						);
-						await updateTask(
-							g,
-							t.href,
-							t.due ? { dueDate: date } : { due: { date, minutes: null } },
-						);
-					},
-				),
+				eachOf(writable, "moved", async (t0) => {
+					const t = this.fresh(t0);
+					const date = addDays(
+						t.due?.date ?? today,
+						t.due ? days : Math.max(0, days),
+					);
+					await updateTask(
+						g,
+						t.href,
+						t.due ? { dueDate: date } : { due: { date, minutes: null } },
+					);
+				}),
 			{
+				subject: writable.length === 1 ? writable[0]?.summary : undefined,
 				done: () => {
 					const one = tasks.length === 1 ? tasks[0] : null;
 					const d = one
@@ -781,9 +865,14 @@ export class Controller {
 		}
 		const lower = new Set(remove.map((r) => r.toLowerCase()));
 		const writable = tasks.filter((t) => !t.readOnly);
+		if (!writable.length) {
+			if (tasks[0]?.readOnly) this.toast(tasks[0].readOnly, { tone: "error" });
+			return;
+		}
 		await this.act(
 			(g) =>
-				eachOf(writable, "changed", async (t) => {
+				eachOf(writable, "changed", async (t0) => {
+					const t = this.fresh(t0);
 					const next = [...t.tags.filter((x) => !lower.has(x.toLowerCase()))];
 					for (const a of add)
 						if (!next.some((x) => x.toLowerCase() === a.toLowerCase()))
@@ -811,7 +900,10 @@ export class Controller {
 		this.restoreSlot.set({ id, base, draft });
 		this.toast(`Your edit of “${summary}” wasn't saved.`, {
 			actions: [
-				{ label: "Restore", run: () => this.sheet.set({ kind: "task", id }) },
+				{
+					label: "Restore",
+					run: () => this.sheet.set({ kind: "task", id, restore: true }),
+				},
 			],
 			ms: 8000,
 		});
@@ -837,16 +929,22 @@ export class Controller {
 		await this.act(
 			async (g) => {
 				let n = 0;
-				for (const t of writable)
-					if (g.store.task(t.href)) n += (await deleteTask(g, t.href)).deleted;
+				for (const t of writable) {
+					// By session id: a task moved meanwhile has a new href; one deleted elsewhere is gone.
+					const now = this.task(t.id);
+					if (now && g.store.task(now.href))
+						n += (await deleteTask(g, now.href)).deleted;
+				}
 				return n;
 			},
 			{
 				subject: writable.length === 1 ? writable[0]?.summary : undefined,
 				done: (n) =>
-					writable.length === 1
-						? `Deleted “${writable[0]?.summary}”${n > 1 ? ` and ${plural(n - 1, "subtask")}` : ""}`
-						: `Deleted ${plural(n, "task")}`,
+					n === 0
+						? "Nothing was deleted: the tasks aren't there any more."
+						: writable.length === 1
+							? `Deleted “${writable[0]?.summary}”${n > 1 ? ` and ${plural(n - 1, "subtask")}` : ""}`
+							: `Deleted ${plural(n, "task")}`,
 			},
 		);
 	}
@@ -862,7 +960,10 @@ export class Controller {
 			return;
 		}
 		const writable = tasks.filter((t) => !t.readOnly && t.list !== to);
-		if (!writable.length) return;
+		if (!writable.length) {
+			if (tasks[0]?.readOnly) this.toast(tasks[0].readOnly, { tone: "error" });
+			return;
+		}
 		const subs = writable.reduce(
 			(n, t) => n + descendants(t, this.tasks()).length,
 			0,
@@ -872,7 +973,7 @@ export class Controller {
 				eachOf(
 					writable,
 					"moved",
-					async (t) => void (await moveToList(g, t.href, to)),
+					async (t) => void (await moveToList(g, this.fresh(t).href, to)),
 				),
 			{
 				subject: writable.length === 1 ? writable[0]?.summary : undefined,
@@ -888,18 +989,27 @@ export class Controller {
 			this.toast(t.readOnly, { tone: "error" });
 			return;
 		}
+		const block = this.writeBlock();
+		if (block) {
+			this.toast(block, { tone: "error" });
+			return;
+		}
 		const all = this.tasks();
 		if (dir === -1) {
 			const p = parentOf(t, all);
 			if (!p) return;
 			const gp = parentOf(p, all);
-			await this.act((g) => setParent(g, t.href, gp?.href ?? null), {
-				subject: t.summary,
-				done: () =>
-					gp
-						? `Moved under “${gp.summary}”`
-						: `“${t.summary}” is a top-level task now`,
-			});
+			await this.act(
+				(g) =>
+					setParent(g, this.fresh(t).href, gp ? this.fresh(gp).href : null),
+				{
+					subject: t.summary,
+					done: () =>
+						gp
+							? `Moved under “${gp.summary}”`
+							: `“${t.summary}” is a top-level task now`,
+				},
+			);
 			return;
 		}
 		const siblings = this.siblings(t);
@@ -908,10 +1018,13 @@ export class Controller {
 			this.toast("There's no task above to nest it under.");
 			return;
 		}
-		await this.act((g) => setParent(g, t.href, above.href), {
-			subject: t.summary,
-			done: () => `Moved under “${above.summary}”`,
-		});
+		await this.act(
+			(g) => setParent(g, this.fresh(t).href, this.fresh(above).href),
+			{
+				subject: t.summary,
+				done: () => `Moved under “${above.summary}”`,
+			},
+		);
 		this.folds.set((m) => new Map(m).set(`task:${above.id}`, false));
 	}
 
@@ -938,6 +1051,11 @@ export class Controller {
 		}
 		if (t.readOnly) {
 			this.toast(t.readOnly, { tone: "error" });
+			return;
+		}
+		const block = this.writeBlock();
+		if (block) {
+			this.toast(block, { tone: "error" });
 			return;
 		}
 		const sibs = this.siblings(t);
@@ -1005,11 +1123,20 @@ export class Controller {
 					const now =
 						this.tasks().find((x) => x.uid === m.uid && x.list === m.list) ?? m;
 					if (now.parentUid !== (to.parent?.uid ?? null))
-						await setParent(g, now.href, to.parent?.href ?? null);
+						await setParent(
+							g,
+							now.href,
+							to.parent ? this.fresh(to.parent).href : null,
+						);
 					const fresh =
 						this.tasks().find((x) => x.uid === m.uid && x.list === m.list) ??
 						now;
-					const sibs = this.siblingsOf(to.list, to.parent?.uid ?? null);
+					// The index counts siblings without the dragged tasks: the ones not placed yet
+					// are left out (the ones placed already sit at index…index+i-1).
+					const later = new Set(movable.slice(i + 1).map((x) => x.uid));
+					const sibs = this.siblingsOf(to.list, to.parent?.uid ?? null).filter(
+						(x) => !later.has(x.uid),
+					);
 					const plan = reorderPlan(sibs, fresh, to.index + i);
 					if (plan.length) await applyOrder(g, plan);
 				}
@@ -1041,19 +1168,20 @@ export class Controller {
 			return;
 		}
 		const movable = tasks.filter((t) => !t.readOnly);
-		if (!movable.length) return;
+		if (!movable.length) {
+			if (tasks[0]?.readOnly) this.toast(tasks[0].readOnly, { tone: "error" });
+			return;
+		}
 		await this.act(
 			(g) =>
-				eachOf(
-					movable,
-					"moved",
-					async (t) =>
-						void (await updateTask(
-							g,
-							t.href,
-							t.due ? { dueDate: date } : { due: { date, minutes: null } },
-						)),
-				),
+				eachOf(movable, "moved", async (t0) => {
+					const t = this.fresh(t0);
+					await updateTask(
+						g,
+						t.href,
+						t.due ? { dueDate: date } : { due: { date, minutes: null } },
+					);
+				}),
 			{
 				subject: movable.length === 1 ? movable[0]?.summary : undefined,
 				done: () =>
@@ -1112,6 +1240,11 @@ export class Controller {
 
 	/** Saves the inline new row at its place (the order rule, bumping following siblings). */
 	async createAt(at: NewRowAt, summary: string): Promise<TaskView | undefined> {
+		const block = this.writeBlock();
+		if (block) {
+			this.toast(block, { tone: "error" });
+			return undefined;
+		}
 		const sibs = this.tasks()
 			.filter(
 				(s) =>
@@ -1132,7 +1265,7 @@ export class Controller {
 				const made = await createTask(g, {
 					summary,
 					list: at.list,
-					...(at.parent ? { parent: at.parent.href } : {}),
+					...(at.parent ? { parent: this.fresh(at.parent).href } : {}),
 					...(mine && at.after !== null ? { order: mine.order } : {}),
 				});
 				if (at.after !== null && bumps.length) await applyOrder(g, bumps);
@@ -1209,6 +1342,7 @@ export class Controller {
 		}
 		this.ctx.store.forget();
 		await this.ctx.store.flush().catch(() => undefined);
+		this.dispose();
 		this.onLogout();
 	}
 
@@ -1272,7 +1406,7 @@ export class Controller {
 		const active =
 			this.summoned.get() || now - this.lastInteraction < ACTIVE_WINDOW_MS;
 		this.nextSyncAt = now + (active ? SYNC_ACTIVE_MS : SYNC_REST_MS);
-		if (!this.timers) return;
+		if (!this.timers || this.disposed) return;
 		if (this.syncTimer) clearTimeout(this.syncTimer);
 		this.syncTimer = setTimeout(
 			() => void this.syncNow(false),
@@ -1289,17 +1423,14 @@ export class Controller {
 
 	// ---------- shell events ----------
 
-	/** Reads shell events until the page goes away. */
-	async listen(): Promise<never> {
-		for (;;) {
-			let ev: ShellEvent | null = null;
-			try {
-				ev = await this.bridge.nextEvent(25);
-			} catch {
-				await new Promise((r) => setTimeout(r, 1000));
-			}
-			if (ev) this.handle(ev);
-		}
+	/** Stops this controller's timers (after Log out a new one takes over). */
+	dispose(): void {
+		this.disposed = true;
+		this.clearLinger();
+		if (this.syncTimer) clearTimeout(this.syncTimer);
+		if (this.settleTimer) clearTimeout(this.settleTimer);
+		this.syncTimer = null;
+		this.settleTimer = null;
 	}
 
 	handle(ev: ShellEvent): void {
@@ -1314,18 +1445,25 @@ export class Controller {
 				this.summoned.set(true);
 				this.touch();
 				void this.syncNow(true);
-				if (ev.target === "settings") this.sheet.set({ kind: "settings" });
-				else if (typeof ev.target === "object") {
+				if (ev.target === "settings") {
+					this.sheet.set({ kind: "settings" });
+					return;
+				}
+				if (typeof ev.target === "object") {
 					const href = ev.target.task;
 					const t = this.tasks().find((x) => x.href === href);
 					if (t) this.highlight.set(t.id);
 				}
+				this.focusRequest.set(ev.target === "quick-add" ? "quick-add" : "list");
 				return;
 			case "dismissed":
 				this.summoned.set(false);
 				void this.flushLinger();
 				return;
 			case "resumed":
+				this.reminders?.resumed();
+				void this.syncNow(true);
+				return;
 			case "network":
 			case "sync-now":
 				void this.syncNow(true);

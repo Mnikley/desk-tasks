@@ -9,7 +9,7 @@ import { type ViewId, viewKey } from "../model.ts";
 import { useStore } from "../store.ts";
 import { useApp } from "./context.ts";
 import { Caret, Lock, More, Plus, Shared, Warning } from "./icons.tsx";
-import { Scrim } from "./Sheet.tsx";
+import { Scrim, useRestoreFocus } from "./Sheet.tsx";
 import { dotStyle } from "./TaskList.tsx";
 
 export function Header(props: { onQuickAdd: () => void }) {
@@ -172,6 +172,7 @@ export function switcherEntries(app: ReturnType<typeof useApp>): SwitchEntry[] {
 
 function Switcher(props: { palette: boolean; onClose: () => void }) {
 	const app = useApp();
+	useRestoreFocus();
 	const [q, setQ] = useState("");
 	const [at, setAt] = useState(0);
 	const input = useRef<HTMLInputElement>(null);
@@ -232,6 +233,11 @@ function Switcher(props: { palette: boolean; onClose: () => void }) {
 				<input
 					ref={input}
 					class="filter-input"
+					role="combobox"
+					aria-expanded="true"
+					aria-controls="switcher-list"
+					aria-autocomplete="list"
+					aria-activedescendant={shown[at] ? `sw-${at}` : undefined}
 					placeholder={
 						props.palette
 							? "Type a command, view or list"
@@ -248,7 +254,7 @@ function Switcher(props: { palette: boolean; onClose: () => void }) {
 						setAt(0);
 					}}
 				/>
-				<div role="listbox" aria-label="Views and lists">
+				<div role="listbox" id="switcher-list" aria-label="Views and lists">
 					{shown.map((e, i) => {
 						const group =
 							e.view?.kind === "list"
@@ -266,6 +272,8 @@ function Switcher(props: { palette: boolean; onClose: () => void }) {
 								<button
 									type="button"
 									role="option"
+									id={`sw-${i}`}
+									tabIndex={-1}
 									class="menu-item"
 									aria-selected={i === at}
 									aria-current={e.key === current ? "page" : undefined}
@@ -309,6 +317,7 @@ function Switcher(props: { palette: boolean; onClose: () => void }) {
 
 function Overflow(props: { onClose: () => void }) {
 	const app = useApp();
+	useRestoreFocus();
 	const showDone = useStore(app.showDone);
 	const v = app.view.get();
 	const items: { label: string; key?: string; run: () => void }[] = [
@@ -342,6 +351,21 @@ function Overflow(props: { onClose: () => void }) {
 				role="menu"
 				style="top: 40px; right: 8px; z-index: 32"
 				onKeyDown={(e) => {
+					const items = [
+						...e.currentTarget.querySelectorAll<HTMLElement>("[role=menuitem]"),
+					];
+					const at = items.indexOf(document.activeElement as HTMLElement);
+					const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
+					if (step) {
+						e.preventDefault();
+						items[(at + step + items.length) % items.length]?.focus();
+						return;
+					}
+					if (e.key === "Home" || e.key === "End") {
+						e.preventDefault();
+						(e.key === "Home" ? items[0] : items.at(-1))?.focus();
+						return;
+					}
 					if (e.key === "Escape") {
 						e.stopPropagation();
 						props.onClose();

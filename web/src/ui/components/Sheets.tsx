@@ -19,7 +19,14 @@ export function Sheets() {
 	const close = () => app.sheet.set(null);
 	return (
 		<>
-			{sheet?.kind === "task" && <TaskSheet id={sheet.id} onClose={close} />}
+			{sheet?.kind === "task" && (
+				<TaskSheet
+					key={sheet.id}
+					id={sheet.id}
+					restore={sheet.restore}
+					onClose={close}
+				/>
+			)}
 			{sheet?.kind === "settings" && <SettingsSheet onClose={close} />}
 			{sheet?.kind === "list" && (
 				<ListSheet href={sheet.href} onClose={close} />
@@ -148,6 +155,8 @@ function WelcomeSheet(props: { onClose: () => void }) {
 							</span>
 							<input
 								type="checkbox"
+								role="switch"
+								aria-checked={shown}
 								class="switch"
 								checked={shown}
 								onChange={(e) =>
@@ -174,6 +183,8 @@ function WelcomeSheet(props: { onClose: () => void }) {
 					</span>
 					<input
 						type="checkbox"
+						role="switch"
+						aria-checked={s.autostart}
 						class="switch"
 						checked={s.autostart}
 						onChange={(e) =>

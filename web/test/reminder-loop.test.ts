@@ -153,3 +153,38 @@ describe("the reminder loop", () => {
 		]);
 	});
 });
+
+describe("the reminder loop, after the review", () => {
+	test("Done on an old toast doesn't complete the next occurrence", async () => {
+		fake.put(
+			`${HOME}work/r.ics`,
+			vtodo("r", ["DUE:20261028T140000", "RRULE:FREQ=DAILY"]),
+		);
+		const r = rig(at("2026-10-28", "14:00"));
+		await sync(r.core.ctx, { force: true });
+		await r.rem.tick();
+		expect(r.toasts).toHaveLength(1);
+		const t = r.app.tasks()[0];
+		r.app.toggleDone(t?.id as number);
+		await r.app.flushLinger(); // ticked in the app: now due tomorrow
+		await r.rem.action("done", `${HOME}work/r.ics`);
+		expect(fake.get(`${HOME}work/r.ics`)).toContain("DUE:20261029T140000");
+	});
+
+	test("the missed summary is for start and resume only", async () => {
+		const r = rig(at("2026-10-28", "13:00"));
+		await sync(r.core.ctx, { force: true });
+		await r.rem.tick(); // the start: nothing missed
+		fake.put(`${HOME}work/late.ics`, vtodo("late", ["DUE:20261028T090000"]));
+		await sync(r.core.ctx, { force: true });
+		await r.rem.tick();
+		expect(r.toasts).toHaveLength(0);
+		fake.put(`${HOME}work/late2.ics`, vtodo("late2", ["DUE:20261028T100000"]));
+		await sync(r.core.ctx, { force: true });
+		r.rem.resumed();
+		await r.rem.tick();
+		expect(r.toasts.map((t) => t.title)).toEqual([
+			"1 reminder while you were away",
+		]);
+	});
+});

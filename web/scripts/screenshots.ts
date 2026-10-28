@@ -24,6 +24,8 @@ interface Shot {
 	/** Before the shot: put the page into the state. */
 	run?: (p: Page) => Promise<void>;
 	height?: number;
+	/** An account with one empty list instead of the seeded one. */
+	empty?: boolean;
 }
 
 const rows = async (p: Page) => {
@@ -103,7 +105,7 @@ const SHOTS: Shot[] = [
 		run: async (p) => {
 			await rows(p);
 			await p.keyboard.press("n");
-			await p.keyboard.type("Buy stamps /wrk", { delay: 5 });
+			await p.keyboard.type("Buy stamps /wrk ", { delay: 5 });
 			await key(p, "Enter");
 		},
 	},
@@ -172,7 +174,7 @@ const SHOTS: Shot[] = [
 			}),
 		},
 		run: async (p) => {
-			await p.waitForSelector(".banner, .empty", { timeout: 10_000 });
+			await p.waitForSelector(".banner, .empty-state", { timeout: 10_000 });
 			await p.waitForTimeout(400);
 		},
 	},
@@ -207,6 +209,13 @@ const SHOTS: Shot[] = [
 		},
 	},
 	{
+		name: "nothing-today",
+		empty: true,
+		run: async (p) => {
+			await p.waitForSelector(".empty-state", { timeout: 10_000 });
+		},
+	},
+	{
 		name: "trash",
 		run: async (p) => {
 			await rows(p);
@@ -226,7 +235,8 @@ try {
 		for (const scheme of ["light", "dark"] as const)
 			for (const width of [360, 480]) {
 				const fake = new FakeCaldav();
-				seed(fake);
+				if (shot.empty) fake.addList("tasks", "Tasks");
+				else seed(fake);
 				const ctx = await browser.newContext({
 					viewport: { width, height: shot.height ?? 560 },
 					colorScheme: scheme,

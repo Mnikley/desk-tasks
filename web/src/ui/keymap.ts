@@ -291,11 +291,11 @@ export const KEYMAP: Binding[] = [
 		run: (a) => a.setView({ kind: "all" }),
 	},
 	{
-		keys: ["Ctrl+Tab"],
-		label: "Next view",
+		keys: ["Ctrl+Tab", "Ctrl+Shift+Tab"],
+		label: "Next view (with Shift: previous)",
 		group: "Views",
 		inFields: true,
-		run: (a) => stepView(a, 1),
+		run: (a, e) => stepView(a, e.shiftKey ? -1 : 1),
 	},
 	{
 		keys: [
@@ -403,11 +403,13 @@ const FIELD =
 /** Layers that take the keys themselves (sheets, popovers, dialogs). */
 const LAYER = ".sheet, .popover, [role='dialog'], [role='alertdialog']";
 const CHORD_MS = 1000;
+/** Things Enter and Space activate. */
+const CONTROL =
+	"button, a[href], select, summary, [role='button'], [role='option'], [role='menuitem'], [role='switch'], [role='checkbox'], [role='tab']";
 let pending: { key: string; at: number } | null = null;
 
-/** A binding fires a single key (no Ctrl/Alt, not F-keys/Escape/arrows). */
-const single = (b: Binding) =>
-	b.keys.every((k) => k.length === 1 || /^Shift\+.$/.test(k));
+/** A single key: printable, without Ctrl or Alt (not F-keys, Escape or arrows). */
+const isSingleKey = (k: string) => k.length === 1 || /^Shift\+.$/.test(k);
 
 /** The window's keydown handler. */
 export function handleKey(app: Controller, e: KeyboardEvent): void {
@@ -428,7 +430,9 @@ export function handleKey(app: Controller, e: KeyboardEvent): void {
 	const b =
 		KEYMAP.find((x) => x.after && applies(x)) ??
 		KEYMAP.find((x) => !x.after && applies(x));
-	const isSingle = b ? single(b) : e.key.length === 1;
+	// Single or not is decided by the key pressed: Undo is Ctrl+Z and z, and only z is single.
+	const pressed = b?.keys.find((k) => matches(k, e));
+	const isSingle = pressed ? isSingleKey(pressed) : e.key.length === 1;
 	// A chord's first key waits for the second.
 	if (
 		!b &&
@@ -451,10 +455,11 @@ export function handleKey(app: Controller, e: KeyboardEvent): void {
 	if (inField && !b.inFields) return;
 	if (inLayer && !b.inFields) return;
 	if (isSingle && !singles) return;
-	// Enter on a button is the button's.
+	// Enter and Space on a focused control are the control's (activation keys); letters still
+	// work there, so the keyboard stays usable after a click on a header button.
 	if (
-		e.key === "Enter" &&
-		target?.closest("button, a[href]") &&
+		(e.key === "Enter" || e.key === " ") &&
+		target?.closest(CONTROL) &&
 		!target.closest(".row")
 	)
 		return;

@@ -63,6 +63,8 @@ export function SettingsSheet(props: { onClose: () => void }) {
 					</span>
 					<input
 						type="checkbox"
+						role="switch"
+						aria-checked={store.settings.readOnly}
 						class="switch"
 						checked={store.settings.readOnly}
 						onChange={(e) =>
@@ -120,6 +122,8 @@ export function SettingsSheet(props: { onClose: () => void }) {
 							</button>
 							<input
 								type="checkbox"
+								role="switch"
+								aria-checked={shown}
 								class="switch"
 								aria-label={`Show ${l.name} in Today, Upcoming and All`}
 								checked={shown}
@@ -180,6 +184,8 @@ export function SettingsSheet(props: { onClose: () => void }) {
 					</span>
 					<input
 						type="checkbox"
+						role="switch"
+						aria-checked={s.singleKeyShortcuts}
 						class="switch"
 						checked={s.singleKeyShortcuts}
 						onChange={(e) =>
@@ -195,6 +201,8 @@ export function SettingsSheet(props: { onClose: () => void }) {
 					<span>Reminders</span>
 					<input
 						type="checkbox"
+						role="switch"
+						aria-checked={s.notifications}
 						class="switch"
 						checked={s.notifications}
 						onChange={(e) => set({ notifications: e.currentTarget.checked })}
@@ -204,6 +212,8 @@ export function SettingsSheet(props: { onClose: () => void }) {
 					<span>Notify at due time when a task has no reminder</span>
 					<input
 						type="checkbox"
+						role="switch"
+						aria-checked={s.dueTimeToasts}
 						class="switch"
 						checked={s.dueTimeToasts}
 						onChange={(e) => set({ dueTimeToasts: e.currentTarget.checked })}
@@ -213,6 +223,8 @@ export function SettingsSheet(props: { onClose: () => void }) {
 					<span>Summarise reminders missed while the PC was off</span>
 					<input
 						type="checkbox"
+						role="switch"
+						aria-checked={s.missedSummary}
 						class="switch"
 						checked={s.missedSummary}
 						onChange={(e) => set({ missedSummary: e.currentTarget.checked })}
@@ -284,6 +296,8 @@ export function SettingsSheet(props: { onClose: () => void }) {
 					<span>Start with Windows</span>
 					<input
 						type="checkbox"
+						role="switch"
+						aria-checked={s.autostart}
 						class="switch"
 						checked={s.autostart}
 						onChange={(e) => set({ autostart: e.currentTarget.checked })}

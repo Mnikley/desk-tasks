@@ -12,7 +12,7 @@ import { PRIORITY_LABEL, STATUS_LABEL } from "../../logic/tasklogic.ts";
 import { dueWords, type PopoverKind, plural } from "../controller.ts";
 import { useStore } from "../store.ts";
 import { useApp } from "./context.ts";
-import { Lock } from "./icons.tsx";
+import { Check, Lock } from "./icons.tsx";
 import { SheetFrame } from "./Sheet.tsx";
 import { dotStyle } from "./TaskList.tsx";
 
@@ -50,7 +50,12 @@ const rebaseDraft = (fresh: Draft, base: Draft, d: Draft): Draft => {
 
 const URL_RE = /\b(https?:\/\/[^\s<>"]+|mailto:[^\s<>"]+)/g;
 
-export function TaskSheet(props: { id: number; onClose: () => void }) {
+export function TaskSheet(props: {
+	id: number;
+	/** Opened from the Restore toast: the unsaved draft comes back. */
+	restore?: boolean;
+	onClose: () => void;
+}) {
 	const app = useApp();
 	useStore(app.revision);
 	const t = app.task(props.id);
@@ -58,7 +63,7 @@ export function TaskSheet(props: { id: number; onClose: () => void }) {
 	const [base, setBase] = useState<Draft | null>(t ? draftOf(t) : null);
 	const [draft, setDraft] = useState<Draft | null>(
 		t
-			? restored?.id === props.id
+			? props.restore && restored?.id === props.id
 				? rebaseDraft(
 						draftOf(t),
 						restored.base as Draft,
@@ -82,20 +87,38 @@ export function TaskSheet(props: { id: number; onClose: () => void }) {
 		setBase(fresh);
 	}, [freshKey]);
 	useEffect(() => {
-		if (restored?.id === props.id) app.restoreSlot.set(null);
+		if (props.restore && restored?.id === props.id) app.restoreSlot.set(null);
 		autoGrow(title.current);
 	}, []);
+	// However the sheet goes away (Esc, another sheet over it, a reminder opening a task),
+	// unsaved changes go to the Restore slot, unless they were saved.
+	const latest = useRef<{
+		dirty: boolean;
+		summary: string;
+		base: Draft | null;
+		draft: Draft | null;
+	}>({ dirty: false, summary: "", base: null, draft: null });
+	const saved = useRef(false);
+	useEffect(
+		() => () => {
+			const l = latest.current;
+			if (l.dirty && !saved.current && l.base && l.draft)
+				app.keepForRestore(props.id, l.summary, l.base, l.draft);
+		},
+		[],
+	);
 
 	if (!t || !draft || !base) {
 		return (
 			<SheetFrame title="Task" onClose={props.onClose}>
-				<div class="empty">This task isn't here any more.</div>
+				<div class="empty-state">This task isn't here any more.</div>
 			</SheetFrame>
 		);
 	}
 	const readOnly = t.readOnly;
 	const change = changeOf(base, draft);
 	const dirty = Object.keys(change).length > 0;
+	latest.current = { dirty, summary: t.summary, base, draft };
 	const list = app.ctx.store.list(t.list);
 	const kids = app
 		.tasks()
@@ -131,7 +154,7 @@ export function TaskSheet(props: { id: number; onClose: () => void }) {
 				return;
 		}
 		setSaving(true);
-		await app.change(
+		const ok = await app.change(
 			[t],
 			{
 				...change,
@@ -142,12 +165,12 @@ export function TaskSheet(props: { id: number; onClose: () => void }) {
 			() => "Saved",
 		);
 		setSaving(false);
+		// Not saved (blocked, refused, a conflict): the sheet stays with the edit in it.
+		if (!ok) return;
+		saved.current = true;
 		props.onClose();
 	};
-	const leave = () => {
-		if (dirty) app.keepForRestore(t.id, t.summary, base, draft);
-		props.onClose();
-	};
+	const leave = () => props.onClose();
 	const set = (p: Partial<Draft>) => setDraft({ ...draft, ...p });
 	const chip = (
 		label: string,
@@ -159,7 +182,7 @@ export function TaskSheet(props: { id: number; onClose: () => void }) {
 			type="button"
 			class={value ? "chip" : "chip empty"}
 			disabled={!!readOnly}
-			title={`${label} (${keyHint})`}
+			title={`${label} (${keyHint} in the list)`}
 			onClick={() => app.popover.set({ kind, id: t.id })}
 		>
 			{value ?? label}
@@ -338,25 +361,25 @@ export function TaskSheet(props: { id: number; onClose: () => void }) {
 							onBlur={() => setEditNotes(false)}
 						/>
 					) : (
-						<div
-							class="textarea"
-							role="button"
-							tabIndex={0}
-							aria-label="Notes, press Enter to edit"
-							style="white-space: pre-wrap; cursor: text; min-height: 0"
-							onClick={(e) => {
-								if ((e.target as HTMLElement).closest("a")) return;
-								if (!readOnly) setEditNotes(true);
-							}}
-							onKeyDown={(e) => {
-								if (e.key === "Enter" && !readOnly) {
-									e.preventDefault();
-									setEditNotes(true);
-								}
-							}}
-						>
-							<Linked text={draft.description} />
-						</div>
+						<>
+							{/* Plain text with real links; editing is a button of its own. */}
+							<div
+								class="textarea notes-read"
+								style="white-space: pre-wrap; min-height: 0"
+							>
+								<Linked text={draft.description} />
+							</div>
+							{!readOnly && (
+								<button
+									type="button"
+									class="text-btn"
+									style="padding: 0; margin-top: 4px"
+									onClick={() => setEditNotes(true)}
+								>
+									Edit notes
+								</button>
+							)}
+						</>
 					)}
 				</div>
 
@@ -481,7 +504,9 @@ function Subtasks(props: { task: TaskView; kids: TaskView[] }) {
 						disabled={!!k.readOnly}
 						onClick={() => app.toggleDone(k.id)}
 					>
-						<span class="ring">✓</span>
+						<span class="ring">
+							<Check size={12} />
+						</span>
 					</button>
 					<button
 						type="button"

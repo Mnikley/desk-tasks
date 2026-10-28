@@ -25,6 +25,22 @@ export function App() {
 			openPopover: (kind, id) => app.popover.set({ kind, id }),
 			newRow: (kind) => app.newRow(kind),
 		});
+		// A summon puts focus in the list (the highlighted task, else the first) or quick add.
+		const offFocus = app.focusRequest.subscribe(() => {
+			const want = app.focusRequest.get();
+			if (!want) return;
+			app.focusRequest.set(null);
+			if (want === "quick-add") {
+				focusQuick.current?.();
+				return;
+			}
+			requestAnimationFrame(() => {
+				if (app.highlight.get() === null) app.moveHighlight(1);
+				requestAnimationFrame(() =>
+					document.querySelector<HTMLElement>(".row.hl")?.focus(),
+				);
+			});
+		});
 		// Any pointer or key use inside the widget counts as activity (sync cadence).
 		const touch = () => app.touch();
 		window.addEventListener("pointerdown", touch);
@@ -32,13 +48,23 @@ export function App() {
 			window.removeEventListener("keydown", onKey);
 			window.removeEventListener("pointerdown", touch);
 			setKeyHooks(null);
+			offFocus();
 		};
 	}, [app]);
 	return (
 		<div class={`app${summoned ? " summoned" : ""}`}>
-			<Header onQuickAdd={() => focusQuick.current?.()} />
+			<Header
+				onQuickAdd={() => {
+					// Trash has no quick add: back to Today first.
+					if (app.view.get().kind === "trash") app.setView({ kind: "today" });
+					requestAnimationFrame(() => focusQuick.current?.());
+				}}
+			/>
 			<ListHeader />
-			<Banners />
+			{/* One live region, always there, so a banner that appears is announced once. */}
+			<div aria-live="polite" class="banners">
+				<Banners />
+			</div>
 			<FilterChips />
 			<TaskList />
 			<BulkBar />

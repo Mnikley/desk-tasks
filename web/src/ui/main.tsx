@@ -2,7 +2,12 @@
 // app (IndexedDB mirror shown instantly, then a sync). The settings column of the store
 // (read-only switch, paused writes) is written through to Python's settings.json.
 import { render } from "preact";
-import { type Bridge, type Settings, waitForBridge } from "../bridge.ts";
+import {
+	type Bridge,
+	type Settings,
+	type ShellEvent,
+	waitForBridge,
+} from "../bridge.ts";
 import { CaldavClient } from "../core/caldav.ts";
 import type { Ctx, Logger } from "../core/ctx.ts";
 import {
@@ -51,6 +56,27 @@ function startView(s: Settings, prefs: Partial<UiPrefs> | undefined): ViewId {
 	return { kind: "today" };
 }
 
+/** The controller shell events go to; a new one replaces it after Log out and back in. */
+let current: Controller | null = null;
+let listening = false;
+
+/** One long-poll loop for the page's whole life, whatever controller is current. */
+function listenOnce(b: Bridge): void {
+	if (listening) return;
+	listening = true;
+	void (async () => {
+		for (;;) {
+			let ev: ShellEvent | null = null;
+			try {
+				ev = await b.nextEvent(25);
+			} catch {
+				await new Promise((r) => setTimeout(r, 1000));
+			}
+			if (ev) current?.handle(ev);
+		}
+	})();
+}
+
 export async function boot(
 	root: HTMLElement,
 	bridge?: Bridge,
@@ -64,6 +90,8 @@ export async function boot(
 	);
 	const settings = await b.settingsGet();
 	document.documentElement.dataset.density = settings.density;
+	current?.dispose();
+	current = null;
 	if (!settings.connected || !settings.server) {
 		render(
 			<FirstRun bridge={b} onConnected={() => void boot(root, b)} />,
@@ -125,7 +153,8 @@ export async function boot(
 	});
 	if (!settings.firstRunDone) app.sheet.set({ kind: "welcome" });
 	void app.syncNow(true);
-	void app.listen();
+	current = app;
+	listenOnce(b);
 	return app;
 }
 

@@ -6,7 +6,13 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { ListRecord } from "../../core/store.ts";
 import { PRIORITY_LABEL } from "../../logic/tasklogic.ts";
 import { type NewRowAt, plural } from "../controller.ts";
-import { dueChip, type Group, type Row, viewKey } from "../model.ts";
+import {
+	dueChip,
+	type Group,
+	type Row,
+	viewKey,
+	visibleRows,
+} from "../model.ts";
 import { useStore } from "../store.ts";
 import { useApp } from "./context.ts";
 import { useDrag } from "./drag.ts";
@@ -115,6 +121,11 @@ function Tasks() {
 							highlight={highlight}
 							selection={selection}
 							showHead={g.title !== null}
+							firstId={
+								highlight === null
+									? (visibleRows(model)[0]?.task.id ?? null)
+									: null
+							}
 						/>
 					))}
 				</div>
@@ -136,6 +147,8 @@ function GroupView(props: {
 	highlight: number | null;
 	selection: ReadonlySet<number>;
 	showHead: boolean;
+	/** With nothing highlighted, the first row is the list's Tab stop. */
+	firstId: number | null;
 }) {
 	const app = useApp();
 	const g = props.group;
@@ -162,7 +175,7 @@ function GroupView(props: {
 							aria-expanded={!g.folded}
 							onClick={() => app.toggleFold(foldKey, g.folded)}
 						>
-							<Chevron open={!g.folded} size={12} />
+							{g.rows.length > 0 && <Chevron open={!g.folded} size={12} />}
 							{list && <span class="list-dot" style={dotStyle(list)} />}
 							<span class="label">{g.title}</span>
 							{g.count > 0 && <span class="n">{g.count}</span>}
@@ -184,6 +197,7 @@ function GroupView(props: {
 							highlighted={props.highlight === r.task.id}
 							selected={props.selection.has(r.task.id)}
 							dayGrouped={g.kind === "day"}
+							tabbable={props.firstId === r.task.id}
 						/>
 					),
 				)}
@@ -331,6 +345,7 @@ function TaskRow(props: {
 	highlighted: boolean;
 	selected: boolean;
 	dayGrouped?: boolean;
+	tabbable?: boolean;
 }) {
 	const app = useApp();
 	const { task: t, depth } = props.row;
@@ -342,7 +357,7 @@ function TaskRow(props: {
 		inToday: app.view.get().kind === "today",
 		dayGrouped: props.dayGrouped,
 	});
-	const readOnly = t.readOnly;
+	const readOnly = t.readOnly ?? app.writeBlock();
 	const title = t.redacted ? "Busy" : t.summary || "(no title)";
 	const onRowClick = (e: MouseEvent) => {
 		app.touch();
@@ -374,7 +389,7 @@ function TaskRow(props: {
 				props.row.expanded === null ? undefined : props.row.expanded
 			}
 			aria-selected={props.selected}
-			tabIndex={props.highlighted ? 0 : -1}
+			tabIndex={props.highlighted || props.tabbable ? 0 : -1}
 			style={`--depth: ${Math.min(depth, MAX_INDENT)}`}
 			onClick={onRowClick}
 			onDblClick={() => {
@@ -382,21 +397,21 @@ function TaskRow(props: {
 			}}
 			onFocus={() => app.highlight.get() !== t.id && app.highlight.set(t.id)}
 		>
-			{props.row.expanded !== null && (
-				<button
-					type="button"
-					class="fold"
-					tabIndex={-1}
-					aria-label={props.row.expanded ? "Hide subtasks" : "Show subtasks"}
-					onClick={(e) => {
-						e.stopPropagation();
-						app.toggleFold(`task:${t.id}`, !props.row.expanded);
-					}}
-				>
-					<Chevron open={props.row.expanded} size={12} />
-				</button>
-			)}
 			<div role="gridcell">
+				{props.row.expanded !== null && (
+					<button
+						type="button"
+						class="fold"
+						tabIndex={-1}
+						aria-label={props.row.expanded ? "Hide subtasks" : "Show subtasks"}
+						onClick={(e) => {
+							e.stopPropagation();
+							app.toggleFold(`task:${t.id}`, !props.row.expanded);
+						}}
+					>
+						<Chevron open={props.row.expanded} size={12} />
+					</button>
+				)}
 				<button
 					type="button"
 					class="check"
@@ -537,6 +552,14 @@ function Meta(props: {
 
 function Rename(props: { value: string; onDone: (v: string | null) => void }) {
 	const ref = useRef<HTMLInputElement>(null);
+	// Enter, Esc or leaving ends it once: Esc unmounts the field, and the blur that follows
+	// must not save what Esc cancelled.
+	const ended = useRef(false);
+	const end = (v: string | null) => {
+		if (ended.current) return;
+		ended.current = true;
+		props.onDone(v);
+	};
 	useLayoutEffect(() => {
 		ref.current?.focus();
 		ref.current?.select();
@@ -550,14 +573,14 @@ function Rename(props: { value: string; onDone: (v: string | null) => void }) {
 			onKeyDown={(e) => {
 				if (e.key === "Enter") {
 					e.preventDefault();
-					props.onDone(e.currentTarget.value);
+					end(e.currentTarget.value);
 				} else if (e.key === "Escape") {
 					e.preventDefault();
 					e.stopPropagation();
-					props.onDone(null);
+					end(null);
 				}
 			}}
-			onBlur={(e) => props.onDone(e.currentTarget.value)}
+			onBlur={(e) => end(e.currentTarget.value)}
 			onClick={(e) => e.stopPropagation()}
 		/>
 	);
@@ -573,9 +596,9 @@ function EmptyState(props: { doneToday: number }) {
 	if (!hasCache && sync.running) return <Skeleton />;
 	if (!hasCache && sync.error)
 		return (
-			<div class="empty error" role="status">
+			<div class="empty-state error" role="status">
 				<strong>No tasks to show yet.</strong>
-				{sync.error.message}
+				The banner above says why. Details are in the log.
 			</div>
 		);
 	const filtered = f.important || f.tags.length || f.text.trim();
@@ -588,7 +611,7 @@ function EmptyState(props: { doneToday: number }) {
 			.filter(Boolean)
 			.join(" ");
 		return (
-			<div class="empty" role="status">
+			<div class="empty-state" role="status">
 				<strong>
 					No tasks match {what} in {app.viewTitle(v)}.
 				</strong>
@@ -604,19 +627,19 @@ function EmptyState(props: { doneToday: number }) {
 	}
 	if (v.kind === "today")
 		return props.doneToday > 0 ? (
-			<div class="empty" role="status">
+			<div class="empty-state" role="status">
 				<strong>All done for today · {props.doneToday} completed.</strong>
 			</div>
 		) : (
-			<div class="empty" role="status">
+			<div class="empty-state" role="status">
 				<strong>Nothing due today.</strong>
-				Press N to add a task.
+				Press n to add a task.
 			</div>
 		);
 	if (v.kind === "list") {
 		const l = app.ctx.store.list(v.href);
 		return (
-			<div class="empty" role="status">
+			<div class="empty-state" role="status">
 				<strong>No tasks in {l?.name ?? "this list"} yet.</strong>
 				{l?.writable ? "Type below to add one." : ""}
 			</div>
@@ -624,13 +647,13 @@ function EmptyState(props: { doneToday: number }) {
 	}
 	if (v.kind === "upcoming")
 		return (
-			<div class="empty" role="status">
+			<div class="empty-state" role="status">
 				<strong>Nothing coming up this week.</strong>
 				Tasks with a due date after today show here.
 			</div>
 		);
 	return (
-		<div class="empty" role="status">
+		<div class="empty-state" role="status">
 			<strong>No open tasks.</strong>
 		</div>
 	);
@@ -651,7 +674,7 @@ function Skeleton() {
 					<i style={{ width: `${w}%` }} />
 				</div>
 			))}
-			<div class="empty">Loading your tasks…</div>
+			<div class="empty-state">Loading your tasks…</div>
 		</div>
 	);
 }

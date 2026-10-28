@@ -46,7 +46,12 @@ export function createInput(
 ): CreateInput | null {
 	const list = p.list ?? d.list ?? fallbackList;
 	if (!list) return null;
-	const due = p.due ?? (d.dueToday ? { date: today, minutes: null } : null);
+	// "Due today" is the view's default, unless the task starts later (a due date before its
+	// start isn't valid).
+	const startsLater = p.start !== null && p.start > today;
+	const due =
+		p.due ??
+		(d.dueToday && !startsLater ? { date: today, minutes: null } : null);
 	return {
 		summary: p.summary,
 		list,
@@ -73,6 +78,7 @@ export function QuickAdd(props: {
 	const [pick, setPick] = useState(0);
 	const [busy, setBusy] = useState(false);
 	const [focused, setFocused] = useState(false);
+	const [blocked, setBlocked] = useState<string | null>(null);
 	const input = useRef<HTMLInputElement>(null);
 	const mirror = useRef<HTMLDivElement>(null);
 	props.focusRef.current = () => input.current?.focus();
@@ -126,7 +132,14 @@ export function QuickAdd(props: {
 	};
 
 	const submit = async () => {
+		if (busy) return;
 		setTried(true);
+		// Saving is off (paused, read-only, offline): said here, not as a toast.
+		const block = app.writeBlock();
+		if (block) {
+			setBlocked(block);
+			return;
+		}
 		if (!line.trim() || parse.errors.length) return;
 		const inp = createInput(parse, defaults, today, fallback?.href ?? null);
 		if (!inp) {
@@ -134,11 +147,14 @@ export function QuickAdd(props: {
 			return;
 		}
 		setBusy(true);
+		const sent = line;
 		const created = await app.create(inp);
 		setBusy(false);
 		if (created) {
-			setLine("");
-			setCaret(0);
+			// What was typed while it saved stays: only the sent line goes.
+			setLine((cur) =>
+				cur.startsWith(sent) ? cur.slice(sent.length).trimStart() : cur,
+			);
 			setTried(false);
 		}
 	};
@@ -177,11 +193,17 @@ export function QuickAdd(props: {
 	return (
 		<div class="quick">
 			{suggest && (
-				<div class="suggest" role="listbox" aria-label="Suggestions">
+				<div
+					class="suggest"
+					role="listbox"
+					id="quick-suggest"
+					aria-label="Suggestions"
+				>
 					{suggest.items.map((s, i) => (
 						<div
 							key={s.insert}
 							role="option"
+							id={`qs-${i}`}
 							aria-selected={i === pick}
 							onMouseDown={(e) => {
 								e.preventDefault();
@@ -205,16 +227,22 @@ export function QuickAdd(props: {
 						aria-label="Add a task"
 						aria-describedby="quick-msg"
 						aria-keyshortcuts="N"
+						role="combobox"
 						aria-autocomplete="list"
+						aria-expanded={!!suggest}
+						aria-controls={suggest ? "quick-suggest" : undefined}
+						aria-activedescendant={suggest ? `qs-${pick}` : undefined}
 						aria-invalid={errors.length > 0 || emptyTried}
 						placeholder={
 							viewOnly ? `“${targetList?.name}” is view only` : "Add a task"
 						}
-						disabled={busy || !!viewOnly}
+						disabled={!!viewOnly}
+						aria-busy={busy}
 						value={line}
 						spellcheck={false}
 						autocomplete="off"
 						onInput={(e) => {
+							setBlocked(null);
 							setLine(e.currentTarget.value);
 							setCaret(e.currentTarget.selectionStart ?? 0);
 							setPick(0);
@@ -275,20 +303,21 @@ export function QuickAdd(props: {
 									setLine(literalize(line, tok));
 									return;
 								}
-								if (line) {
-									e.preventDefault();
-									e.stopPropagation();
-									setLine("");
-									setTried(false);
-									return;
-								}
-								e.currentTarget.blur();
+								// Leave the field (the draft stays) for the list; the Esc chain goes on there.
+								e.preventDefault();
+								e.stopPropagation();
+								const row =
+									document.querySelector<HTMLElement>(".row.hl") ??
+									document.querySelector<HTMLElement>(".row[data-id]");
+								if (row) row.focus();
+								else e.currentTarget.blur();
 							}
 						}}
 					/>
 				</div>
 			</div>
-			{chips.length > 0 && !viewOnly && (
+			{/* Calm at rest: the defaults show while quick add is in use. */}
+			{chips.length > 0 && !viewOnly && (focused || line !== "") && (
 				<div class="quick-chips">
 					{chips.map((c) => (
 						<span class="chip" key={c.key}>
@@ -305,7 +334,9 @@ export function QuickAdd(props: {
 				</div>
 			)}
 			<div id="quick-msg" aria-live="polite">
-				{errors[0] ? (
+				{blocked && line.trim() ? (
+					<div class="quick-error">{blocked}</div>
+				) : errors[0] ? (
 					<div class="quick-error">{errors[0]}</div>
 				) : emptyTried ? (
 					<div class="quick-error">{EMPTY_TITLE}</div>

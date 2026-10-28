@@ -6,7 +6,7 @@ import { filtering } from "../model.ts";
 import { useStore } from "../store.ts";
 import { useApp } from "./context.ts";
 import { Close, Warning } from "./icons.tsx";
-import { Scrim } from "./Sheet.tsx";
+import { Scrim, trapFocus } from "./Sheet.tsx";
 
 export function Banners() {
 	const app = useApp();
@@ -24,7 +24,7 @@ export function Banners() {
 	})();
 	if (s.paused)
 		return (
-			<div class="banner" role="alert">
+			<div class="banner">
 				<Warning />
 				<span class="text">
 					Saving to Nextcloud is paused because a change couldn't be confirmed.
@@ -49,7 +49,7 @@ export function Banners() {
 		);
 	if (sync.error?.kind === "auth")
 		return (
-			<div class="banner" role="alert">
+			<div class="banner">
 				<Warning />
 				<span class="text">Nextcloud rejected the app password.</span>
 				<span class="actions">
@@ -65,7 +65,7 @@ export function Banners() {
 		);
 	if (sync.offline)
 		return (
-			<div class="banner" role="status">
+			<div class="banner">
 				<Warning />
 				<span class="text">
 					Offline{at ? ` · showing tasks from ${at}` : ""}. Changes are paused
@@ -75,7 +75,7 @@ export function Banners() {
 		);
 	if (sync.error?.kind === "unreachable")
 		return (
-			<div class="banner" role="status">
+			<div class="banner">
 				<Warning />
 				<span class="text">
 					Can't reach {host}
@@ -94,7 +94,7 @@ export function Banners() {
 		);
 	if (s.readOnly)
 		return (
-			<div class="banner" role="status">
+			<div class="banner">
 				<Warning />
 				<span class="text">
 					Read-only mode is on: nothing is saved to Nextcloud.
@@ -115,7 +115,7 @@ export function Banners() {
 		const one = broken.length === 1 ? broken[0]?.error : null;
 		const unreadable = broken.every((l) => l.error?.kind === "invalid");
 		return (
-			<div class="banner" role="status">
+			<div class="banner">
 				<Warning />
 				<span class="text">
 					{one
@@ -187,8 +187,28 @@ export function FilterChips() {
 export function Toasts() {
 	const app = useApp();
 	const toasts = useStore(app.toasts);
+	const sheet = useStore(app.sheet);
+	const box = useRef<HTMLDivElement>(null);
+	// Toasts sit above whatever is at the bottom: quick add, or the open sheet's footer.
+	useLayoutEffect(() => {
+		const root = box.current?.closest<HTMLElement>(".app");
+		if (!root) return;
+		const measure = () => {
+			const foot = [
+				...root.querySelectorAll<HTMLElement>(".sheet .sheet-foot"),
+			].at(-1);
+			const quick = root.querySelector<HTMLElement>(".quick");
+			const h = foot?.offsetHeight ?? quick?.offsetHeight ?? 0;
+			root.style.setProperty("--bottom-h", `${h}px`);
+		};
+		measure();
+		const ro = new ResizeObserver(measure);
+		for (const el of root.querySelectorAll<HTMLElement>(".quick, .sheet-foot"))
+			ro.observe(el);
+		return () => ro.disconnect();
+	}, [toasts.length, sheet]);
 	return (
-		<div class="toasts" aria-live="polite" aria-relevant="additions">
+		<div class="toasts" ref={box} aria-live="polite" aria-relevant="additions">
 			{toasts.map((t) => (
 				<ToastView key={t.id} id={t.id} />
 			))}
@@ -214,12 +234,7 @@ function ToastView(props: { id: number }) {
 	}, [props.id]);
 	if (!t) return null;
 	return (
-		<div
-			class={`toast ${t.tone}`}
-			ref={el}
-			role={t.tone === "error" ? "alert" : "status"}
-			data-toast={t.id}
-		>
+		<div class={`toast ${t.tone}`} ref={el} data-toast={t.id}>
 			<span class="text">{t.text}</span>
 			{t.actions.map((a) => (
 				<button
@@ -251,7 +266,28 @@ export function Confirmation() {
 	const app = useApp();
 	const c = useStore(app.confirmation);
 	const ok = useRef<HTMLButtonElement>(null);
-	useLayoutEffect(() => ok.current?.focus(), [c]);
+	const box = useRef<HTMLDivElement>(null);
+	const back = useRef<HTMLElement | null>(null);
+	useLayoutEffect(() => {
+		if (!c) return;
+		back.current = document.activeElement as HTMLElement | null;
+		ok.current?.focus();
+		// Esc answers it wherever focus is (it is modal: nothing else takes keys meanwhile).
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key !== "Escape") return;
+			e.preventDefault();
+			e.stopPropagation();
+			app.answer(false);
+		};
+		window.addEventListener("keydown", onKey, true);
+		return () => {
+			window.removeEventListener("keydown", onKey, true);
+			const el = back.current;
+			if (el?.isConnected) el.focus();
+			else
+				document.querySelector<HTMLElement>(".row.hl, .switcher-btn")?.focus();
+		};
+	}, [c]);
 	if (!c) return null;
 	return (
 		<>
@@ -261,13 +297,10 @@ export function Confirmation() {
 				role="alertdialog"
 				aria-modal="true"
 				aria-label={c.text}
+				ref={box}
 				style="left: 12px; right: 12px; bottom: 12px; z-index: 35; padding: 12px"
 				onKeyDown={(e) => {
-					if (e.key === "Escape") {
-						e.preventDefault();
-						e.stopPropagation();
-						app.answer(false);
-					}
+					if (e.key === "Tab") trapFocus(e, box.current);
 				}}
 			>
 				<p style="margin: 0 0 12px">{c.text}</p>

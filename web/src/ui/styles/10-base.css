@@ -56,6 +56,9 @@ button {
 :focus-visible {
 	box-shadow: var(--ring-focus);
 	border-radius: var(--radius-s);
+	/* Box shadows vanish in forced colours; a transparent outline shows there instead. */
+	outline: 2px solid transparent;
+	outline-offset: 2px;
 }
 .tnum {
 	font-variant-numeric: tabular-nums;
@@ -268,8 +271,9 @@ button.chip:not([disabled]):hover {
 .chip button {
 	display: inline-grid;
 	place-items: center;
-	width: 18px;
-	height: 18px;
+	width: 24px;
+	height: 24px;
+	margin: -1px -4px -1px 0;
 	border-radius: 50%;
 	color: var(--muted);
 }
@@ -337,7 +341,7 @@ button.chip:not([disabled]):hover {
 	font-weight: 400;
 }
 .group-head[data-empty] {
-	height: 22px;
+	height: 24px;
 	margin-top: 2px;
 	font-weight: 400;
 }
@@ -367,14 +371,22 @@ button.chip:not([disabled]):hover {
 .row:hover {
 	background: var(--hover);
 }
+/* Selected: tint plus a filled bar (never a tint alone); highlighted: an outline. */
 .row[aria-selected="true"] {
 	background: var(--selected);
 }
-.row.hl {
-	background: var(--hover);
+.row[aria-selected="true"]::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 4px;
+	bottom: 4px;
+	width: 3px;
+	border-radius: 0 2px 2px 0;
+	background: var(--accent);
 }
-.summoned .row.hl {
-	box-shadow: inset 2px 0 0 var(--accent);
+.row.hl {
+	box-shadow: inset 0 0 0 1px var(--ring);
 }
 .row:focus-visible {
 	border-radius: 0;
@@ -389,10 +401,10 @@ button.chip:not([disabled]):hover {
 }
 .row .fold {
 	position: absolute;
-	left: calc(var(--pad) - 11px + var(--depth, 0) * var(--indent));
-	top: calc((var(--row) - 20px) / 2);
-	width: 20px;
-	height: 20px;
+	left: calc(var(--pad) - 13px + var(--depth, 0) * var(--indent));
+	top: calc((var(--row) - 24px) / 2);
+	width: 24px;
+	height: 24px;
 	display: grid;
 	place-items: center;
 	color: var(--muted);
@@ -581,21 +593,21 @@ button.chip:not([disabled]):hover {
 
 /* ---------- empty, loading, error states ---------- */
 
-.empty {
+.empty-state {
 	padding: 32px var(--pad);
 	text-align: center;
 	color: var(--muted);
 }
-.empty strong {
+.empty-state strong {
 	display: block;
 	color: var(--ink);
 	font-weight: 600;
 	margin-bottom: 4px;
 }
-.empty.error strong {
+.empty-state.error strong {
 	color: var(--ink);
 }
-.empty.error svg {
+.empty-state.error svg {
 	color: var(--warn);
 	margin-bottom: 6px;
 }
@@ -679,11 +691,10 @@ button.chip:not([disabled]):hover {
 }
 .quick-field .mirror mark {
 	background: none;
+	/* Same metrics as the input's text (no bold), or the caret drifts from the mirror. */
 	color: var(--accent);
-	font-weight: 600;
 	border-radius: 3px;
-	box-shadow: inset 0 -1.5px 0
-		color-mix(in oklch, var(--accent) 40%, transparent);
+	box-shadow: inset 0 -1.5px 0 var(--accent);
 }
 .quick-chips {
 	display: flex;
@@ -692,7 +703,7 @@ button.chip:not([disabled]):hover {
 	margin-top: 6px;
 }
 .quick-chips .chip {
-	height: 22px;
+	height: 24px;
 }
 .quick-error {
 	margin: 6px 2px 0;
@@ -925,12 +936,14 @@ kbd {
 	line-height: 16px;
 	color: var(--muted);
 }
+/* Windows 11 TextBox: a hairline box with a 3:1 bottom stroke, so the field's edge shows. */
 .input,
 .textarea {
 	width: 100%;
 	min-height: 30px;
 	padding: 4px 8px;
 	border: 1px solid var(--hairline);
+	border-bottom-color: var(--ring);
 	border-radius: var(--radius-s);
 	background: var(--surface-raised);
 }
@@ -999,7 +1012,8 @@ kbd {
 	position: absolute;
 	left: var(--pad);
 	right: var(--pad);
-	bottom: 64px;
+	/* Above quick add or a sheet's footer (measured into --bottom-h). */
+	bottom: calc(var(--bottom-h, 56px) + 8px);
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
@@ -1087,10 +1101,28 @@ kbd {
 		background: Highlight;
 		border-color: Highlight;
 	}
-	.row[aria-selected="true"],
 	.row.hl {
+		outline: 2px dotted CanvasText;
+		outline-offset: -2px;
+	}
+	.row[aria-selected="true"]::before {
+		forced-color-adjust: none;
+		background: Highlight;
+	}
+	.row[aria-selected="true"] {
 		outline: 2px solid Highlight;
 		outline-offset: -2px;
+	}
+	.menu-item[aria-selected="true"],
+	[role="gridcell"][aria-selected="true"] {
+		outline: 2px solid Highlight;
+		outline-offset: -2px;
+	}
+	.sync-dot i {
+		border: 1px solid CanvasText;
+	}
+	.quick-field .mirror mark {
+		text-decoration: underline;
 	}
 	.prio i.on {
 		background: CanvasText;
@@ -1109,6 +1141,9 @@ kbd {
 .row[aria-selected="true"],
 .row.hl[aria-selected="true"] {
 	background: var(--selected);
+}
+.row.hl[aria-selected="true"] {
+	box-shadow: inset 0 0 0 1px var(--ring);
 }
 .bulk .text-btn {
 	padding: 0 5px;
@@ -1197,4 +1232,8 @@ body.dragging * {
 .menu-item.drop-target {
 	background: var(--selected);
 	box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.banners {
+	flex: none;
 }

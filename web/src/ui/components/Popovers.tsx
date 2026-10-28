@@ -31,7 +31,7 @@ import type { Controller, PopoverKind } from "../controller.ts";
 import { type Filter, NO_FILTER } from "../model.ts";
 import { useApp } from "./context.ts";
 import { Close, Lock } from "./icons.tsx";
-import { Scrim } from "./Sheet.tsx";
+import { Scrim, useRestoreFocus } from "./Sheet.tsx";
 import { dotStyle } from "./TaskList.tsx";
 
 /** Places a popover under the highlighted row (or above it near the bottom). */
@@ -341,6 +341,8 @@ export function Calendar(props: {
 	const days: string[] = [];
 	for (let d = first; d <= last || weekday(d) !== 0; d = addDays(d, 1))
 		days.push(d);
+	const weeks: string[][] = [];
+	for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
 	const grid = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		if (grid.current?.contains(document.activeElement))
@@ -403,34 +405,40 @@ export function Calendar(props: {
 					}
 				}}
 			>
-				{[0, 1, 2, 3, 4, 5, 6].map((d) => (
-					<span key={d} class="help" role="columnheader">
-						{weekdayName(d).slice(0, 2)}
-					</span>
+				<div role="row" style="display: contents">
+					{[0, 1, 2, 3, 4, 5, 6].map((d) => (
+						<span key={d} class="help" role="columnheader">
+							{weekdayName(d).slice(0, 2)}
+						</span>
+					))}
+				</div>
+				{weeks.map((week) => (
+					<div role="row" style="display: contents" key={week[0]}>
+						{week.map((d) => {
+							const out = monthKey(d) !== month;
+							const isSel = d === props.selected;
+							const isToday = d === props.today;
+							return (
+								<button
+									key={d}
+									type="button"
+									role="gridcell"
+									tabIndex={d === props.cursor ? 0 : -1}
+									data-autofocus={d === props.cursor ? "" : undefined}
+									aria-selected={isSel}
+									aria-current={isToday ? "date" : undefined}
+									aria-label={`${weekdayName(weekday(d), true)}, ${Number(d.slice(8))} ${monthName(Number(d.slice(5, 7)), true)}`}
+									class="tnum"
+									style={`height: 28px; border-radius: 5px; ${out ? "color: var(--muted);" : ""} ${isSel ? "background: var(--accent); color: var(--accent-ink);" : d === props.cursor ? "background: var(--hover);" : ""} ${isToday && !isSel ? "font-weight: 700; color: var(--accent);" : ""}`}
+									onClick={() => props.onPick(d)}
+									onFocus={() => d !== props.cursor && props.onCursor(d)}
+								>
+									{Number(d.slice(8))}
+								</button>
+							);
+						})}
+					</div>
 				))}
-				{days.map((d) => {
-					const out = monthKey(d) !== month;
-					const isSel = d === props.selected;
-					const isToday = d === props.today;
-					return (
-						<button
-							key={d}
-							type="button"
-							role="gridcell"
-							tabIndex={d === props.cursor ? 0 : -1}
-							data-autofocus={d === props.cursor ? "" : undefined}
-							aria-selected={isSel}
-							aria-current={isToday ? "date" : undefined}
-							aria-label={`${weekdayName(weekday(d), true)}, ${Number(d.slice(8))} ${monthName(Number(d.slice(5, 7)), true)}`}
-							class="tnum"
-							style={`height: 28px; border-radius: 5px; ${out ? "color: var(--muted);" : ""} ${isSel ? "background: var(--accent); color: var(--accent-ink);" : d === props.cursor ? "background: var(--hover);" : ""} ${isToday && !isSel ? "font-weight: 700; color: var(--accent);" : ""}`}
-							onClick={() => props.onPick(d)}
-							onFocus={() => d !== props.cursor && props.onCursor(d)}
-						>
-							{Number(d.slice(8))}
-						</button>
-					);
-				})}
 			</div>
 		</div>
 	);
@@ -476,19 +484,21 @@ function TagsPop(props: P) {
 					<span class="grow">Add tag #{fresh}</span>
 				</button>
 			)}
-			{shown.map((g) => (
-				<button
-					key={g}
-					type="button"
-					class="menu-item"
-					role="menuitemcheckbox"
-					aria-checked={has(g)}
-					onClick={() => toggle(g)}
-				>
-					<span class="grow">#{g}</span>
-					{has(g) && <span aria-hidden="true">✓</span>}
-				</button>
-			))}
+			<div role="listbox" aria-label="Tags" aria-multiselectable="true">
+				{shown.map((g) => (
+					<button
+						key={g}
+						type="button"
+						class="menu-item"
+						role="option"
+						aria-selected={has(g)}
+						onClick={() => toggle(g)}
+					>
+						<span class="grow">#{g}</span>
+						{has(g) && <span aria-hidden="true">✓</span>}
+					</button>
+				))}
+			</div>
 			{!all.length && !fresh && (
 				<div class="menu-label">No tags yet. Type one to add it.</div>
 			)}
@@ -567,21 +577,23 @@ function PriorityPop(props: P) {
 				return !!p;
 			}}
 		>
-			{PRIORITY_ORDER.map((p, i) => (
-				<button
-					key={p}
-					type="button"
-					class="menu-item"
-					aria-checked={props.task.priority === p}
-					role="menuitemradio"
-					onClick={() => pick(p)}
-				>
-					<span class="grow">
-						{p === "none" ? "No priority" : `${PRIORITY_LABEL[p]} priority`}
-					</span>
-					<kbd>{i + 1}</kbd>
-				</button>
-			))}
+			<div role="listbox" aria-label="Priority">
+				{PRIORITY_ORDER.map((p, i) => (
+					<button
+						key={p}
+						type="button"
+						class="menu-item"
+						aria-selected={props.task.priority === p}
+						role="option"
+						onClick={() => pick(p)}
+					>
+						<span class="grow">
+							{p === "none" ? "No priority" : `${PRIORITY_LABEL[p]} priority`}
+						</span>
+						<kbd>{i + 1}</kbd>
+					</button>
+				))}
+			</div>
 		</Pop>
 	);
 }
@@ -712,6 +724,8 @@ export function RepeatEditor(props: {
 					<span>On the last day of the month</span>
 					<input
 						type="checkbox"
+						role="switch"
+						aria-checked={r.monthDay === "last"}
 						class="switch"
 						checked={r.monthDay === "last"}
 						onChange={(e) =>
@@ -784,6 +798,8 @@ export function RepeatEditor(props: {
 				<span>Repeat from the completion date</span>
 				<input
 					type="checkbox"
+					role="switch"
+					aria-checked={r.fromCompletion}
 					class="switch"
 					checked={r.fromCompletion}
 					onChange={(e) =>
@@ -947,6 +963,7 @@ export function parseFilter(text: string): Filter {
 
 export function FilterPopover(props: { onClose: () => void }) {
 	const app = useApp();
+	useRestoreFocus();
 	const cur = app.filter.get();
 	const [text, setText] = useState(
 		[cur.important ? "!1" : "", ...cur.tags.map((t) => `#${t}`), cur.text]

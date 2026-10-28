@@ -158,7 +158,7 @@ export function ListSheet(props: { href: string; onClose: () => void }) {
 	if (!l)
 		return (
 			<SheetFrame title="List" onClose={props.onClose}>
-				<div class="empty">This list isn't here any more.</div>
+				<div class="empty-state">This list isn't here any more.</div>
 			</SheetFrame>
 		);
 	const flags = settings.lists[l.href] ?? {};
@@ -273,6 +273,8 @@ export function ListSheet(props: { href: string; onClose: () => void }) {
 					<span>Show in Today, Upcoming and All</span>
 					<input
 						type="checkbox"
+						role="switch"
+						aria-checked={shownNow}
 						class="switch"
 						checked={shownNow}
 						onChange={(e) => setFlag("shown", e.currentTarget.checked)}
@@ -282,6 +284,8 @@ export function ListSheet(props: { href: string; onClose: () => void }) {
 					<span>Reminders for this list</span>
 					<input
 						type="checkbox"
+						role="switch"
+						aria-checked={notifyNow}
 						class="switch"
 						checked={notifyNow}
 						onChange={(e) => setFlag("notify", e.currentTarget.checked)}

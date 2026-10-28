@@ -29,6 +29,10 @@ export class Reminders {
 	private snoozes: Snooze[];
 	private trayText = "";
 	private running = false;
+	/** The next pass may summarise missed reminders: at start and after a resume only. */
+	private summarise = true;
+	/** What each toast was about: a Done on an old toast mustn't complete the next occurrence. */
+	private readonly shown = new Map<string, string>();
 
 	constructor(
 		private readonly app: Controller,
@@ -94,8 +98,12 @@ export class Reminders {
 			this.fired.add(e.key);
 			changed = true;
 		}
+		const summarise = this.summarise;
+		this.summarise = false;
 		if (plan.missed.length) {
-			if (s.missedSummary)
+			// While running, a trigger already past (a task just created with an old due
+			// time) is remembered quietly; the summary is for time the PC was off or asleep.
+			if (s.missedSummary && summarise)
 				await this.app.bridge
 					.notify({
 						title: missedText(plan.missed.length),
@@ -120,7 +128,16 @@ export class Reminders {
 		if (changed) this.persist();
 	}
 
+	/** After sleep: the next pass summarises what was missed meanwhile. */
+	resumed(): void {
+		this.summarise = true;
+	}
+
 	private async show(e: ReminderEntry): Promise<void> {
+		this.shown.set(
+			e.href,
+			occurrence(this.app.tasks().find((t) => t.href === e.href)),
+		);
 		const list = this.app.ctx.store.list(e.list)?.name ?? "";
 		await this.app.bridge
 			.notify({
@@ -147,6 +164,15 @@ export class Reminders {
 		}
 		if (action === "done") {
 			if (!t) return;
+			// The task moved on to its next occurrence (or was ticked) since the toast showed.
+			const was = this.shown.get(href);
+			if (
+				t.status === "COMPLETED" ||
+				(was !== undefined && was !== occurrence(t))
+			) {
+				this.app.toast(`“${t.summary}” was already done.`);
+				return;
+			}
 			await this.app.act((g) => completeTask(g, href), {
 				subject: t.summary,
 				done: () => `Completed “${t.summary}”`,
@@ -211,4 +237,17 @@ function fallbackEntry(
 		dueText: "",
 		readOnly: t.readOnly !== null,
 	};
+}
+
+/** Which occurrence a task is at: its due (or start) date and status. */
+function occurrence(
+	t:
+		| {
+				due: { date: string } | null;
+				start: { date: string } | null;
+				status: string;
+		  }
+		| undefined,
+): string {
+	return t ? `${t.due?.date ?? t.start?.date ?? ""}|${t.status}` : "";
 }

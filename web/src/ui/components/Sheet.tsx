@@ -25,7 +25,12 @@ export function SheetFrame(props: {
 			) ??
 			ref.current?.querySelector<HTMLElement>("button");
 		first?.focus();
-		return () => back?.focus?.();
+		// Back where it was; if that is gone (a menu item), to the highlighted row.
+		return () => {
+			if (back?.isConnected) back.focus();
+			else
+				document.querySelector<HTMLElement>(".row.hl, .switcher-btn")?.focus();
+		};
 	}, []);
 	return (
 		<div
@@ -75,7 +80,7 @@ export function SheetFrame(props: {
 }
 
 /** Tab stays inside the sheet (it is modal). */
-function trapFocus(e: KeyboardEvent, root: HTMLElement | null): void {
+export function trapFocus(e: KeyboardEvent, root: HTMLElement | null): void {
 	if (!root) return;
 	const items = [
 		...root.querySelectorAll<HTMLElement>(
@@ -109,4 +114,16 @@ export function Scrim(props: {
 			onClick={props.onClose}
 		/>
 	);
+}
+
+/** Puts focus back where it was when the layer closes (the highlighted row if that is gone). */
+export function useRestoreFocus(): void {
+	useLayoutEffect(() => {
+		const back = document.activeElement as HTMLElement | null;
+		return () => {
+			if (back?.isConnected && back !== document.body) back.focus();
+			else
+				document.querySelector<HTMLElement>(".row.hl, .switcher-btn")?.focus();
+		};
+	}, []);
 }

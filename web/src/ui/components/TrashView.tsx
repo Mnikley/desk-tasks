@@ -42,13 +42,17 @@ export function TrashView() {
 	if (error)
 		return (
 			<div class="scroll">
-				<div class="empty error" role="alert">
+				<div class="empty-state error" role="alert">
 					<Warning size={20} />
-					<strong>The trash couldn't be read.</strong>
+					<strong>
+						{error.status === 404
+							? "No trash here."
+							: "The trash couldn't be read."}
+					</strong>
 					{error.status === 404
 						? "This Nextcloud doesn't keep deleted tasks in a trash."
 						: error.message}
-					<div>
+					<div hidden={error.status === 404}>
 						<button type="button" class="text-btn" onClick={() => void load()}>
 							Retry
 						</button>
@@ -59,7 +63,7 @@ export function TrashView() {
 	if (!trash)
 		return (
 			<div class="scroll">
-				<div class="empty" role="status">
+				<div class="empty-state" role="status">
 					Loading the trash…
 				</div>
 			</div>
@@ -71,7 +75,7 @@ export function TrashView() {
 				Items are deleted for good after {plural(trash.retentionDays, "day")}.
 			</p>
 			{empty && (
-				<div class="empty" role="status">
+				<div class="empty-state" role="status">
 					<TrashIcon size={20} />
 					<strong>The trash is empty.</strong>
 				</div>
