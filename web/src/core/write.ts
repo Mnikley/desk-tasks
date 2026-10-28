@@ -19,6 +19,7 @@ import {
 	sameIcalDate,
 	TaskDocument,
 	type TaskFields,
+	type Trigger,
 } from "./ical.ts";
 import { addJournal, haltWrites, undoable } from "./journal.ts";
 import {
@@ -80,6 +81,8 @@ export interface Change {
 	 * its next occurrence (a recurring subtask inside a completing parent).
 	 */
 	close?: boolean;
+	/** Reminders to add (DISPLAY alarms) and to remove (by `Alarm.key`); others stay as written. */
+	reminders?: { add?: Trigger[]; remove?: string[] };
 }
 
 export interface CreateInput extends Change {
@@ -114,6 +117,7 @@ const TOUCHES: Record<keyof Change, (f: TaskFields) => unknown> = {
 	progress: (f) => [f.status, f.completed, f.percent],
 	order: (f) => f.sortOrder,
 	repeat: (f) => [f.rrule, f.repeatFromCompletion],
+	reminders: (f) => f.alarms.map((a) => a.key),
 	close: (f) => [f.status, f.completed, f.percent],
 };
 
@@ -176,6 +180,12 @@ function validate(c: Change): Change {
 		if (r.end.kind === "until" && !isDate(r.end.date))
 			invalid("That end date isn't a valid date.");
 	}
+	for (const t of c.reminders?.add ?? [])
+		if (
+			(t.kind === "relative" && !Number.isInteger(t.seconds)) ||
+			(t.kind === "absolute" && !Number.isFinite(t.at))
+		)
+			invalid("That reminder time isn't valid.");
 	if (c.order !== undefined && (!Number.isSafeInteger(c.order) || c.order < 0))
 		invalid("That position isn't valid.");
 	if (
@@ -298,6 +308,16 @@ export function applyChange(ctx: Ctx, text: string, c: Change): string {
 		// the UI asks first).
 		doc.setRRule(null);
 		doc.setRepeatFromCompletion(false);
+	}
+	if (c.reminders) {
+		for (const key of c.reminders.remove ?? []) doc.removeAlarm(key);
+		for (const t of c.reminders.add ?? []) {
+			if (t.kind === "relative" && t.related === "END" && !finalDue)
+				invalid("Set a due date first.");
+			if (t.kind === "relative" && t.related === "START" && !finalStart)
+				invalid("Set a start date first.");
+			doc.addAlarm(t, doc.fields().summary);
+		}
 	}
 	if (doc.toString() === original) return text;
 	doc.touch(ctx.now());

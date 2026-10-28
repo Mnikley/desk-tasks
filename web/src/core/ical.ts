@@ -272,6 +272,8 @@ export interface TaskFields {
 	repeatFromCompletion: boolean;
 	/** RDATE or EXDATE lines (extra or skipped dates; only shown, never edited). */
 	extraDates: boolean;
+	/** The VTODO's VALARMs. */
+	alarms: Alarm[];
 }
 
 export class TaskDocument {
@@ -391,6 +393,7 @@ export class TaskDocument {
 				(this.value("X-DESKTASKS-REPEAT-FROM") ?? "").trim().toUpperCase() ===
 				"COMPLETION",
 			extraDates: this.own("RDATE").length > 0 || this.own("EXDATE").length > 0,
+			alarms: this.alarms(),
 			prodid:
 				this.lines
 					.find((l) => l.path === "VCALENDAR" && l.name === "PRODID")
@@ -419,15 +422,117 @@ export class TaskDocument {
 		return this.lines[e]?.eol || "\r\n";
 	}
 
-	private make(head: string, value: string, eol: string): ContentLine {
+	private make(
+		head: string,
+		value: string,
+		eol: string,
+		path = TODO_PATH,
+	): ContentLine {
 		const text = `${head}:${value}`;
 		return {
 			raw: fold(text, eol),
 			text,
 			eol,
 			...parseLine(text),
-			path: TODO_PATH,
+			path,
 		};
+	}
+
+	// ---------- alarms (VALARM components of the first VTODO) ----------
+
+	/** Line ranges [BEGIN, END] of the first VTODO's own VALARMs. */
+	private alarmRanges(): [number, number][] {
+		const [b, e] = this.range();
+		const out: [number, number][] = [];
+		for (let i = b + 1; i < e; i++) {
+			const l = this.lines[i];
+			if (
+				l?.path !== TODO_PATH ||
+				l.name !== "BEGIN" ||
+				l.value.toUpperCase() !== "VALARM"
+			)
+				continue;
+			let j = i + 1;
+			while (j < e) {
+				const m = this.lines[j];
+				if (
+					m?.path === TODO_PATH &&
+					m.name === "END" &&
+					m.value.toUpperCase() === "VALARM"
+				)
+					break;
+				j++;
+			}
+			out.push([i, j]);
+			i = j;
+		}
+		return out;
+	}
+
+	/** The VALARMs as written; `key` names one (its exact text) for removal. */
+	alarms(): Alarm[] {
+		return this.alarmRanges().map(([b, e]) => {
+			const own = this.lines
+				.slice(b + 1, e)
+				.filter((l) => l.path === `${TODO_PATH}/VALARM`);
+			const get = (n: string) => own.find((l) => l.name === n);
+			const trigger = get("TRIGGER");
+			return {
+				key: this.lines
+					.slice(b, e + 1)
+					.map((l) => l.text)
+					.join("\n"),
+				action: (get("ACTION")?.value ?? "").trim().toUpperCase(),
+				trigger: trigger ? parseTrigger(trigger.value, trigger.params) : null,
+			};
+		});
+	}
+
+	/** Removes the VALARM with this key (and nothing else). */
+	removeAlarm(key: string): void {
+		const r = this.alarmRanges().find(
+			([b, e]) =>
+				this.lines
+					.slice(b, e + 1)
+					.map((l) => l.text)
+					.join("\n") === key,
+		);
+		if (r) this.lines.splice(r[0], r[1] - r[0] + 1);
+	}
+
+	/** Adds a DISPLAY alarm (what tasks.org and the Tasks app write) before END:VTODO. */
+	addAlarm(trigger: Trigger, description: string): void {
+		const [, e] = this.range();
+		const eol = this.eolOfTodo();
+		const inner = `${TODO_PATH}/VALARM`;
+		const t =
+			trigger.kind === "relative"
+				? this.make(
+						`TRIGGER;RELATED=${trigger.related}`,
+						durationText(trigger.seconds),
+						eol,
+						inner,
+					)
+				: this.make(
+						"TRIGGER;VALUE=DATE-TIME",
+						utcStamp(trigger.at),
+						eol,
+						inner,
+					);
+		this.lines.splice(
+			e,
+			0,
+			this.make("BEGIN", "VALARM", eol),
+			this.make("ACTION", "DISPLAY", eol, inner),
+			this.make(
+				"DESCRIPTION",
+				escapeText(description || "Reminder"),
+				eol,
+				inner,
+			),
+			t,
+			this.make("END", "VALARM", eol),
+		);
 	}
 
 	/**
@@ -636,6 +741,66 @@ export class TaskDocument {
 		if (this.own("LAST-MODIFIED").length)
 			this.set("LAST-MODIFIED", utcStamp(now), { drop: ["VALUE", "TZID"] });
 	}
+}
+
+/** When an alarm goes off: relative to DUE (END) or DTSTART (START), or at an instant. */
+export type Trigger =
+	| { kind: "relative"; related: "START" | "END"; seconds: number }
+	| { kind: "absolute"; at: number };
+
+export interface Alarm {
+	key: string;
+	action: string;
+	trigger: Trigger | null;
+}
+
+/** "-PT15M", "P1D", "-P1W", "PT0S" as seconds; null if it isn't a duration. */
+export function parseDuration(value: string): number | null {
+	const m =
+		/^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(
+			value.trim().toUpperCase(),
+		);
+	if (!m || value.trim().toUpperCase().endsWith("T")) return null;
+	const [, sign, w, d, h, min, sec] = m;
+	if ([w, d, h, min, sec].every((x) => x === undefined)) return null;
+	if ([w, d, h, min, sec].every((x) => x === undefined)) return null;
+	const n =
+		Number(w ?? 0) * 604_800 +
+		Number(d ?? 0) * 86_400 +
+		Number(h ?? 0) * 3600 +
+		Number(min ?? 0) * 60 +
+		Number(sec ?? 0);
+	return sign === "-" ? -n : n;
+}
+
+/** Seconds as an iCalendar duration, the way tasks.org writes them ("-PT15M", "-P1D", "PT0S"). */
+export function durationText(seconds: number): string {
+	const sign = seconds < 0 ? "-" : "";
+	let s = Math.abs(Math.round(seconds));
+	if (s === 0) return "PT0S";
+	if (s % 86_400 === 0) return `${sign}P${s / 86_400}D`;
+	const days = Math.floor(s / 86_400);
+	s -= days * 86_400;
+	const h = Math.floor(s / 3600);
+	const m = Math.floor((s % 3600) / 60);
+	const sec = s % 60;
+	return `${sign}P${days ? `${days}D` : ""}T${h ? `${h}H` : ""}${m ? `${m}M` : ""}${sec ? `${sec}S` : ""}`;
+}
+
+function parseTrigger(value: string, params: Param[]): Trigger | null {
+	const valueType = params.find((p) => p.name === "VALUE")?.value.toUpperCase();
+	if (valueType === "DATE-TIME") {
+		const d = parseDateValue(value, params);
+		if (!d || d.kind !== "date-time" || !d.utc) return null;
+		return { kind: "absolute", at: instantOf(d, "UTC") };
+	}
+	const seconds = parseDuration(value);
+	if (seconds === null) return null;
+	const related =
+		params.find((p) => p.name === "RELATED")?.value.toUpperCase() === "END"
+			? "END"
+			: "START";
+	return { kind: "relative", related, seconds };
 }
 
 function readStatus(

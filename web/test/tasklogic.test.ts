@@ -28,6 +28,7 @@ const task = (uid: string, o: Partial<TaskDTO> = {}): TaskDTO => ({
 	readOnly: null,
 	recurring: false,
 	repeat: null,
+	reminders: [],
 	klass: "PUBLIC",
 	pinned: false,
 	location: "",

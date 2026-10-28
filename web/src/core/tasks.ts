@@ -9,8 +9,10 @@ import {
 	priorityLevel,
 	TaskDocument,
 	type TaskFields,
+	type Trigger,
 } from "./ical.ts";
 import { describeRule, type RepeatRule, ruleOf } from "./recurrence.ts";
+import { triggerInstant, triggerLabel } from "./reminders.ts";
 import type { ListRecord, TaskRecord } from "./store.ts";
 import { fmtClock } from "./time.ts";
 import type { TaskPriority, TaskStatus } from "./types.ts";
@@ -56,6 +58,13 @@ export interface TaskView {
 	/** Why the app won't change this task (read-only list, …), or null. */
 	readOnly: string | null;
 	recurring: boolean;
+	/** The task's alarms the UI shows (DISPLAY/AUDIO), with when they go off. */
+	reminders: {
+		key: string;
+		label: string;
+		trigger: Trigger;
+		at: number | null;
+	}[];
 	/** The repeat in words ("Weekly · Mon, Wed"), and the rule when the editor can show it. */
 	repeat: { text: string; rule: RepeatRule | null } | null;
 	/** CLASS: "PUBLIC", "CONFIDENTIAL" (show only busy), "PRIVATE", or another value as written. */
@@ -203,6 +212,18 @@ function toView(
 			(created === null ? 0 : Math.round(created / 1000) - APPLE_EPOCH_S),
 		readOnly: readOnlyReason(row, list, f),
 		recurring: f.recurring,
+		reminders: f.alarms.flatMap((a) =>
+			a.trigger && (a.action === "DISPLAY" || a.action === "AUDIO")
+				? [
+						{
+							key: a.key,
+							label: triggerLabel(a.trigger, ctx.tz),
+							trigger: a.trigger,
+							at: triggerInstant(a.trigger, f, ctx.tz, doc),
+						},
+					]
+				: [],
+		),
 		repeat: f.rrule
 			? {
 					text: describeRule(f.rrule, due?.date ?? start?.date ?? null),

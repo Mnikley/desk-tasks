@@ -345,6 +345,41 @@ describe.skipIf(!enabled)("the core (real Nextcloud)", () => {
 		});
 	});
 
+	test("reminders: a relative and an absolute VALARM are added, one removed; nothing else changes", async () => {
+		const before = (await remote("planify-task.ics")).text;
+		await ok(
+			patch("planify-task.ics", {
+				reminders: {
+					add: [
+						{ kind: "relative", related: "END", seconds: -3600 },
+						{ kind: "absolute", at: Date.UTC(2026, 9, 21, 9, 0) },
+					],
+				},
+			}),
+		);
+		const added = (await remote("planify-task.ics")).text;
+		const d = diff(before, added);
+		expect(d.removed.map((l) => l.split(":")[0])).toEqual(["DTSTAMP"]);
+		expect(d.added.filter((l) => !l.startsWith("DTSTAMP")).join("")).toBe(
+			"BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Renamed planify-task.ics\r\nTRIGGER;RELATED=END:-PT1H\r\nEND:VALARM\r\n" +
+				"BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Renamed planify-task.ics\r\nTRIGGER;VALUE=DATE-TIME:20261021T090000Z\r\nEND:VALARM\r\n",
+		);
+		// Planify's own LF alarm is still there, byte for byte.
+		expect(added).toContain(
+			"BEGIN:VALARM\nTRIGGER;VALUE=DATE-TIME:20261021T123000Z\nACTION:DISPLAY\n",
+		);
+		const hour = task("planify-task.ics").reminders.find(
+			(r) => r.label === "1 hour before",
+		);
+		await ok(
+			patch("planify-task.ics", { reminders: { remove: [hour?.key ?? ""] } }),
+		);
+		const after = (await remote("planify-task.ics")).text;
+		expect(after).not.toContain("TRIGGER;RELATED=END:-PT1H");
+		expect(after).toContain("TRIGGER;VALUE=DATE-TIME:20261021T090000Z");
+		expect(task("planify-task.ics").reminders).toHaveLength(2);
+	});
+
 	test("all-day, time-zone and floating due dates round-trip unchanged through other edits", async () => {
 		const dueLine = (t: string) => /\r?\nDUE[^\r\n]*/.exec(t)?.[0];
 		for (const name of [
