@@ -31,6 +31,10 @@ export interface Failure {
 	conflict?: { mine: TaskSide | null; theirs: TaskSide | null };
 	/** For "unreachable": whether the request may have reached the server. */
 	sent?: boolean;
+	/** Journal entries an undo group made before it failed ("undo the part that went through"). */
+	steps?: number[];
+	/** Undo steps still to do after a failed undo ("Try again" continues with these). */
+	left?: number[];
 }
 
 export class CoreError extends Error {

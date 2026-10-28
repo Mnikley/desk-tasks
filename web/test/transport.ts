@@ -51,12 +51,18 @@ export function fetchTransport(opts: {
 		} catch (err) {
 			return failure(err);
 		}
-		if (!bytes)
-			return { ok: false, kind: "too-large", message: "body over its cap" };
 		const out: Record<string, string> = {};
 		res.headers.forEach((v, k) => {
 			out[k.toLowerCase()] = v;
 		});
+		if (!bytes)
+			return {
+				ok: false,
+				kind: "too-large",
+				status: res.status,
+				headers: out,
+				message: "body over its cap",
+			};
 		try {
 			const body = new TextDecoder("utf-8", {
 				fatal: true,

@@ -56,6 +56,14 @@ export interface Change {
 	priority?: TaskPriority;
 	status?: TaskStatus;
 	tags?: string[];
+	/** Start date (DTSTART), in the same forms as due. tasks.org hides the task until then. */
+	start?: { date: string; minutes: number | null } | null;
+	pinned?: boolean;
+	klass?: "PUBLIC" | "CONFIDENTIAL" | "PRIVATE";
+	location?: string;
+	url?: string;
+	/** PERCENT-COMPLETE 0–100; moves STATUS along (0 to do, 1–99 in progress, 100 done). */
+	progress?: number;
 }
 
 export interface CreateInput extends Change {
@@ -75,6 +83,13 @@ const TOUCHES: Record<keyof Change, (f: TaskFields) => unknown> = {
 	priority: (f) => f.priority,
 	status: (f) => [f.status, f.completed, f.percent],
 	tags: (f) => f.categories,
+	start: (f) => f.start,
+	pinned: (f) => f.pinned,
+	klass: (f) => f.klass,
+	location: (f) => f.location,
+	url: (f) => f.url,
+	// A progress change writes STATUS too, so a status change elsewhere overlaps it.
+	progress: (f) => [f.status, f.completed, f.percent],
 };
 
 function invalid(message: string): never {
@@ -100,6 +115,31 @@ function validate(c: Change): Change {
 	}
 	if (c.dueDate !== undefined && !isDate(c.dueDate))
 		invalid("That due date isn't a valid date.");
+	if (c.start) {
+		if (!isDate(c.start.date)) invalid("That start date isn't a valid date.");
+		const m = c.start.minutes;
+		if (m !== null && (!Number.isInteger(m) || m < 0 || m > 1439))
+			invalid("That start time isn't valid.");
+	}
+	if (
+		c.klass !== undefined &&
+		!["PUBLIC", "CONFIDENTIAL", "PRIVATE"].includes(c.klass)
+	)
+		invalid("Unknown privacy setting.");
+	if (c.location !== undefined) {
+		out.location = c.location.trim();
+		if (out.location.length > 500) invalid("The location is too long.");
+	}
+	if (c.url !== undefined) {
+		out.url = c.url.trim();
+		if (out.url.length > 2000 || /\s/.test(out.url))
+			invalid("That link isn't a valid address.");
+	}
+	if (
+		c.progress !== undefined &&
+		(!Number.isFinite(c.progress) || c.progress < 0 || c.progress > 100)
+	)
+		invalid("Progress goes from 0 to 100 %.");
 	if (c.priority !== undefined && !TASK_PRIORITIES.includes(c.priority))
 		invalid("Unknown priority.");
 	if (c.status !== undefined && !TASK_STATUSES.includes(c.status))
@@ -129,26 +169,48 @@ export function applyChange(ctx: Ctx, text: string, c: Change): string {
 	if (c.priority !== undefined) doc.setPriority(c.priority);
 	if (c.tags !== undefined) doc.setCategories([...new Set(c.tags)]);
 	if (c.status !== undefined) doc.setStatus(c.status, ctx.now());
-	let due: IcalDate | null | undefined;
-	if (c.due === null) due = null;
-	else if (c.due) {
-		const shown = f.due ? dueInApp(f.due, ctx.tz, doc) : null;
-		const same = shown?.date === c.due.date && shown.minutes === c.due.minutes;
-		if (!same) due = dueFromApp(c.due, f.due, ctx.tz);
-	}
+	if (c.progress !== undefined) doc.setProgress(c.progress, ctx.now());
+	if (c.pinned !== undefined) doc.setPinned(c.pinned);
+	if (c.klass !== undefined) doc.setClass(c.klass);
+	if (c.location !== undefined && c.location !== f.location)
+		doc.setText("LOCATION", c.location);
+	if (c.url !== undefined && c.url !== f.url) doc.setUrl(c.url);
+	const picked = (
+		input: { date: string; minutes: number | null } | null | undefined,
+		cur: IcalDate | null,
+	): IcalDate | null | undefined => {
+		if (input === null) return null;
+		if (!input) return undefined;
+		const shown = cur ? dueInApp(cur, ctx.tz, doc) : null;
+		const same = shown?.date === input.date && shown.minutes === input.minutes;
+		return same ? undefined : dueFromApp(input, cur, ctx.tz);
+	};
+	let due = picked(c.due, f.due);
 	if (c.dueDate)
 		due = f.due
 			? moveDue(f.due, c.dueDate, ctx.tz, doc)
 			: { kind: "date", date: c.dueDate };
-	if (due !== undefined && !sameIcalDate(due, f.due)) {
-		if (due && dueBeforeStart(due, f.start, ctx.tz, doc)) {
-			const start = f.start ? dueInApp(f.start, ctx.tz, doc).date : "";
+	const start = picked(c.start, f.start);
+	const dueChanged = due !== undefined && !sameIcalDate(due, f.due);
+	const startChanged = start !== undefined && !sameIcalDate(start, f.start);
+	const finalDue = dueChanged ? (due ?? null) : f.due;
+	const finalStart = startChanged ? (start ?? null) : f.start;
+	if (
+		(dueChanged || startChanged) &&
+		finalDue &&
+		dueBeforeStart(finalDue, finalStart, ctx.tz, doc)
+	) {
+		if (!dueChanged)
 			invalid(
-				`This task starts on ${start ? fmtDateNumeric(start) : "a later day"}. A due date before its start isn't valid; change the start first.`,
+				"The start is after the due date. Pick an earlier start or move the due date first.",
 			);
-		}
-		doc.setDue(due);
+		const at = finalStart ? dueInApp(finalStart, ctx.tz, doc).date : "";
+		invalid(
+			`This task starts on ${at ? fmtDateNumeric(at) : "a later day"}. A due date before its start isn't valid; change the start first.`,
+		);
 	}
+	if (dueChanged) doc.setDue(due ?? null);
+	if (startChanged) doc.setStart(start ?? null);
 	if (doc.toString() === original) return text;
 	doc.touch(ctx.now());
 	return doc.toString();
@@ -202,7 +264,7 @@ function halt(
 		undoOf?: number;
 	},
 	userMessage = "Saving to Nextcloud is paused because a change couldn't be confirmed.",
-): never {
+): Promise<never> {
 	return haltWrites(ctx, e, userMessage);
 }
 
@@ -211,14 +273,14 @@ function halt(
  * message. A request that never left (connect) is a plain failure too. Anything else (no
  * answer, a server error) may or may not have been applied, so all writes pause.
  */
-function writeFailed(
+async function writeFailed(
 	ctx: Ctx,
 	err: unknown,
 	op: Op,
 	target: string,
 	before: VersionRecord | null,
 	undoOf?: number,
-): never {
+): Promise<never> {
 	if (
 		(err instanceof CaldavUnreachable && err.kind !== "connect") ||
 		(err instanceof CaldavError && err.status >= 500)
@@ -238,14 +300,14 @@ function writeFailed(
 }
 
 /** The write may have landed but we can't tell: pause, journal, say so. */
-function outcomeUnknown(
+async function outcomeUnknown(
 	ctx: Ctx,
 	err: unknown,
 	op: Op,
 	target: string,
 	before: VersionRecord | null,
 	undoOf?: number,
-): never {
+): Promise<never> {
 	return halt(ctx, {
 		op,
 		target,
@@ -279,8 +341,10 @@ async function readBack(
 		sent: string;
 		before: VersionRecord | null;
 		undoOf?: number;
+		/** The write makes the task private in a list shared with me: Nextcloud hides it then. */
+		mayHide?: boolean;
 	},
-): Promise<Fetched> {
+): Promise<Fetched | "hidden"> {
 	let got: Fetched | null;
 	try {
 		got = await dc.get(e.href);
@@ -289,6 +353,7 @@ async function readBack(
 		return outcomeUnknown(ctx, err, e.op, e.href, e.before, e.undoOf);
 	}
 	if (got && got.text === e.sent && !got.binary) return got;
+	if (!got && e.mayHide) return "hidden";
 	if (got) storeTask(ctx, e.list, e.href, got);
 	return halt(ctx, {
 		op: e.op,
@@ -319,8 +384,9 @@ async function putVerified(
 		before: VersionRecord | null;
 		undoOf?: number;
 		message?: string;
+		mayHide?: boolean;
 	},
-): Promise<Fetched | null> {
+): Promise<Fetched | "hidden" | null> {
 	try {
 		await dc.put(w.href, w.text, w.cond);
 	} catch (err) {
@@ -334,7 +400,21 @@ async function putVerified(
 		sent: w.text,
 		before: w.before,
 		...(w.undoOf === undefined ? {} : { undoOf: w.undoOf }),
+		...(w.mayHide ? { mayHide: true } : {}),
 	});
+	if (got === "hidden") {
+		// Saved and now invisible to me, as Nextcloud does with private tasks for sharees.
+		ctx.store.forgetTask(w.href, ctx.now());
+		addJournal(ctx, {
+			op: w.op,
+			target: w.href,
+			before: w.before,
+			after: null,
+			status: "ok",
+			message: "made private; Nextcloud hides it from you now",
+		});
+		return "hidden";
+	}
 	storeTask(ctx, w.list, w.href, got);
 	addJournal(ctx, {
 		op: w.op,
@@ -360,11 +440,19 @@ const fetchCurrent = (dc: CaldavClient, href: string) =>
 
 // ---------- update ----------
 
+/** A private task in a list shared with me disappears for me once saved. */
+const hidesFromMe = (list: ListRecord, text: string) =>
+	list.shared && TaskDocument.parse(text).fields().klass === "PRIVATE";
+
+/**
+ * Changes some fields of a task. Returns the task as now stored, or null when the change made
+ * it private in a list shared with me (Nextcloud hides it from me then).
+ */
 export async function updateTask(
 	ctx: Ctx,
 	href: string,
 	input: Change,
-): Promise<TaskView> {
+): Promise<TaskView | null> {
 	const change = validate(input);
 	const { row, list } = taskRow(ctx, href);
 	const dc = gate(ctx, list, row);
@@ -377,8 +465,10 @@ export async function updateTask(
 		text: next,
 		cond: { ifMatch: row.etag },
 		before: version(row.href, list.href, row),
+		mayHide: hidesFromMe(list, next),
 	});
 	if (!saved) return mergeAndRetry(ctx, dc, row, list, change, next);
+	if (saved === "hidden") return null;
 	return taskView(ctx, href);
 }
 
@@ -394,10 +484,10 @@ async function mergeAndRetry(
 	list: ListRecord,
 	change: Change,
 	mine: string,
-): Promise<TaskView> {
+): Promise<TaskView | null> {
 	const cur = await fetchCurrent(dc, row.href);
 	if (!cur) {
-		ctx.store.dropTask(row.href);
+		ctx.store.forgetTask(row.href, ctx.now());
 		throw conflict(
 			ctx,
 			"This task was deleted in Nextcloud since the last sync. Nothing was written.",
@@ -442,7 +532,9 @@ async function mergeAndRetry(
 		cond: { ifMatch: cur.etag },
 		before: version(row.href, list.href, cur),
 		message: "merged with a change made elsewhere to other fields",
+		mayHide: hidesFromMe(list, next),
 	});
+	if (saved === "hidden") return null;
 	if (!saved)
 		throw conflict(
 			ctx,
@@ -583,7 +675,7 @@ async function deleteOne(
 				);
 			const cur = await fetchCurrent(dc, n.href);
 			if (cur) storeTask(ctx, list, n.href, cur);
-			else ctx.store.dropTask(n.href);
+			else ctx.store.forgetTask(n.href, ctx.now());
 			throw conflict(
 				ctx,
 				"This task changed in Nextcloud since the last sync, so it wasn't deleted. Check the new version.",
@@ -599,7 +691,7 @@ async function deleteOne(
 			outcomeUnknown(ctx, err, "delete", n.href, before, undoOf),
 		);
 	if (still !== null) {
-		halt(ctx, {
+		await halt(ctx, {
 			op: "delete",
 			target: n.href,
 			before,
@@ -608,7 +700,7 @@ async function deleteOne(
 			...(undoOf === undefined ? {} : { undoOf }),
 		});
 	}
-	ctx.store.dropTask(n.href);
+	ctx.store.forgetTask(n.href, ctx.now());
 	addJournal(ctx, {
 		op: "delete",
 		target: n.href,
@@ -685,13 +777,15 @@ async function moveOne(
 		before,
 		...(undoOf === undefined ? {} : { undoOf }),
 	});
+	if (got === "hidden")
+		throw new Error("Broken invariant: a moved task hidden.");
 	const source = await dc
 		.etag(n.href)
 		.catch((err: unknown) =>
 			outcomeUnknown(ctx, err, "move", n.href, before, undoOf),
 		);
 	if (source !== null) {
-		halt(ctx, {
+		await halt(ctx, {
 			op: "move",
 			target: dest,
 			before,

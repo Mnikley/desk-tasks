@@ -469,7 +469,10 @@ describe("edge cases", () => {
 		const text = await fixture("kitchen-sink.ics");
 		const d = TaskDocument.parse(text);
 		d.setDescription("Short now");
-		const { removed, added } = diff(text, d.toString());
+		const { removed: all, added } = diff(text, d.toString());
+		// Writing DESCRIPTION also drops X-ALT-DESC, as the Tasks app does.
+		expect(all.filter((l) => l.startsWith("X-ALT-DESC"))).toHaveLength(1);
+		const removed = all.filter((l) => !l.startsWith("X-ALT-DESC"));
 		expect(removed).toHaveLength(2); // the folded DESCRIPTION was two physical lines
 		expect(removed[0]).toStartWith(
 			'DESCRIPTION;ALTREP="cid:part1.0001@example.test":A long',

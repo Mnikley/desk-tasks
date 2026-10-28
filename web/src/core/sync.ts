@@ -476,7 +476,8 @@ function listError(err: unknown, name: string): ListError {
 		};
 	if (err instanceof CaldavError)
 		return {
-			kind: err.status === 404 ? "gone" : "unreachable",
+			// A 404 here is confirmed by the next discovery, which drops the list properly.
+			kind: "unreachable",
 			message: `Nextcloud answered ${err.status} for “${name}”: ${err.message}`,
 			action: "Check the list in Nextcloud; it's retried automatically.",
 		};

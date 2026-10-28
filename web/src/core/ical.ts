@@ -475,9 +475,58 @@ export class TaskDocument {
 		this.set("SUMMARY", escapeText(s));
 	}
 
+	/** Writes DESCRIPTION and, like the Tasks app, drops X-ALT-DESC (it would show stale HTML). */
 	setDescription(s: string): void {
 		if (s === "") this.remove("DESCRIPTION");
 		else this.set("DESCRIPTION", escapeText(s));
+		this.remove("X-ALT-DESC");
+	}
+
+	/** A plain TEXT property; empty removes it. */
+	setText(name: "LOCATION", s: string): void {
+		if (s === "") this.remove(name);
+		else this.set(name, escapeText(s));
+	}
+
+	/** URL is a URI value: written as is, no TEXT escaping. Empty removes it. */
+	setUrl(s: string): void {
+		if (s === "") this.remove("URL");
+		else this.set("URL", s);
+	}
+
+	/** X-PINNED:true, as Nextcloud Tasks and Planify write it; unpinning removes the line. */
+	setPinned(pinned: boolean): void {
+		if (this.fields().pinned === pinned) return;
+		if (pinned) this.set("X-PINNED", "true");
+		else this.remove("X-PINNED");
+	}
+
+	/** CLASS; PUBLIC is the default and removes the line. */
+	setClass(klass: "PUBLIC" | "CONFIDENTIAL" | "PRIVATE"): void {
+		if (this.fields().klass === klass) return;
+		if (klass === "PUBLIC") this.remove("CLASS");
+		else this.set("CLASS", klass);
+	}
+
+	/**
+	 * PERCENT-COMPLETE with STATUS, as the Tasks app moves them together: 0 removes PERCENT and
+	 * means NEEDS-ACTION, 1–99 is IN-PROCESS, 100 completes the task.
+	 */
+	setProgress(p: number, now: number): void {
+		const f = this.fields();
+		if (p >= 100) {
+			this.setStatus("COMPLETED", now);
+			return;
+		}
+		if (p <= 0) {
+			this.remove("PERCENT-COMPLETE");
+			if (f.status !== "NEEDS-ACTION") this.set("STATUS", "NEEDS-ACTION");
+			this.remove("COMPLETED");
+			return;
+		}
+		if (f.percent !== p) this.set("PERCENT-COMPLETE", String(Math.round(p)));
+		if (f.status !== "IN-PROCESS") this.set("STATUS", "IN-PROCESS");
+		this.remove("COMPLETED");
 	}
 
 	setPriority(level: TaskPriority): void {
@@ -517,17 +566,26 @@ export class TaskDocument {
 
 	/** Writes a due date. `null` removes it. */
 	setDue(next: IcalDate | null): void {
+		this.setDate("DUE", next);
+	}
+
+	/** Writes the start date (DTSTART), in the same value forms as DUE. `null` removes it. */
+	setStart(next: IcalDate | null): void {
+		this.setDate("DTSTART", next);
+	}
+
+	private setDate(name: "DUE" | "DTSTART", next: IcalDate | null): void {
 		if (!next) {
-			this.remove("DUE");
+			this.remove(name);
 			return;
 		}
 		if (next.kind === "date") {
-			this.set("DUE", formatDateValue(next), {
+			this.set(name, formatDateValue(next), {
 				drop: ["TZID"],
 				add: [["VALUE", "DATE"]],
 			});
 		} else {
-			this.set("DUE", formatDateValue(next), {
+			this.set(name, formatDateValue(next), {
 				drop: ["VALUE", ...(next.tzid ? [] : ["TZID"])],
 				add: next.tzid ? [["TZID", next.tzid]] : [],
 			});

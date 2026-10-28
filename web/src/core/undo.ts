@@ -1,11 +1,11 @@
 // Undo groups: a user action may make several writes (a bulk change, a cascade, a subtree
 // move); `journaled` runs it and returns the journal entries it made, newest first, so one Undo
-// takes them all back in order. Writes run one at a time, so a group never takes in another
-// action's entries.
+// takes them all back in order. Groups run one at a time, and each one's entries carry its own
+// group id, so a group never takes in another action's entries.
 import type { Ctx } from "./ctx.ts";
 import { undo } from "./write.ts";
 
-/** Per store: the chain writes queue on. */
+/** Per store: the chain groups queue on. */
 const busy = new WeakMap<Ctx["store"], Promise<unknown>>();
 
 export interface Journaled<T> {
@@ -14,30 +14,36 @@ export interface Journaled<T> {
 	steps: number[];
 }
 
-/** The entries a group made: successful writes that aren't themselves undos. */
-const madeSince = (ctx: Ctx, before: number) =>
+/** The entries a group made: its successful writes that aren't themselves undos. */
+const madeBy = (ctx: Ctx, group: number) =>
 	ctx.store
 		.journal()
-		.filter((e) => e.id > before && e.status === "ok" && e.undoOf === null)
+		.filter((e) => e.group === group && e.status === "ok" && e.undoOf === null)
 		.map((e) => e.id);
 
 /**
- * Runs `write` after every earlier write has finished, and returns its result with the journal
- * entries it made. When `write` fails after some entries were made, the error carries them as
- * `steps` so the caller can still offer to undo the part that went through.
+ * Runs `write` after every earlier group has finished, with a ctx whose writes are stamped with
+ * this group, and returns its result with the journal entries it made. When `write` fails after
+ * some entries were made, the error carries them as `steps` (and `attempt` passes them on in
+ * `Failure.steps`) so the caller can still offer to undo the part that went through.
+ * A group can't contain another one: calling `journaled` with a group's ctx throws.
  */
 export function journaled<T>(
 	ctx: Ctx,
-	write: () => Promise<T>,
+	write: (g: Ctx) => Promise<T>,
 ): Promise<Journaled<T>> {
+	if (ctx.group !== undefined)
+		throw new Error("Broken invariant: an undo group inside another one.");
 	const prev = busy.get(ctx.store) ?? Promise.resolve();
 	const run = prev.then(async () => {
-		const before = ctx.store.lastJournalId();
+		const g: Ctx = { ...ctx, group: ctx.store.newGroup() };
 		try {
-			const result = await write();
-			return { result, steps: madeSince(ctx, before) };
+			const result = await write(g);
+			return { result, steps: madeBy(ctx, g.group as number) };
 		} catch (err) {
-			throw Object.assign(err as Error, { steps: madeSince(ctx, before) });
+			throw Object.assign(err as Error, {
+				steps: madeBy(ctx, g.group as number),
+			});
 		}
 	});
 	busy.set(
@@ -52,15 +58,15 @@ export const partialSteps = (err: unknown): number[] =>
 	(err as { steps?: number[] }).steps ?? [];
 
 /**
- * Undoes the steps in order. Stops at the first failure and returns the steps still to do, so
- * "Try again" continues where it stopped; throws that failure with `left` attached.
+ * Undoes the steps in order. Stops at the first failure and throws it with the steps still to
+ * do attached as `left`, so "Try again" continues where it stopped.
  */
 export async function undoSteps(ctx: Ctx, steps: number[]): Promise<void> {
 	const left = [...steps];
-	await journaled(ctx, async () => {
+	await journaled(ctx, async (g) => {
 		try {
 			while (left[0] !== undefined) {
-				await undo(ctx, left[0]);
+				await undo(g, left[0]);
 				left.shift();
 			}
 		} catch (err) {

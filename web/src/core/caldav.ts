@@ -115,7 +115,11 @@ export interface DavResponse {
 	props: Map<string, XmlElement>;
 }
 
-type Answer = Extract<DavResult, { ok: true }>;
+/** An answer; `truncated` when its body was over the cap and isn't there. */
+type Answer = Extract<DavResult, { ok: true }> & { truncated?: boolean };
+
+const TOO_LARGE =
+	"Nextcloud's answer is larger than expected; it was not read.";
 
 const statusCode = (s: string | undefined) =>
 	Number(/HTTP\/[\d.]+\s+(\d{3})/.exec(s ?? "")?.[1] ?? 0) || null;
@@ -181,7 +185,7 @@ export class CaldavClient {
 		const u = new URL(href, this.origin);
 		if (u.origin !== this.origin || !u.pathname.startsWith(this.root))
 			throw new CaldavError(
-				502,
+				400,
 				`Nextcloud pointed at a location outside its DAV root (${u.pathname}); refusing to follow it.`,
 			);
 		return u.toString();
@@ -213,11 +217,16 @@ export class CaldavClient {
 			...(opts.body === undefined ? {} : { body: opts.body }),
 		});
 		if (res.ok) return res;
+		// The status is known; only the body is missing (callers that need it check `truncated`).
 		if (res.kind === "too-large")
-			throw new CaldavError(
-				413,
-				"Nextcloud's answer is larger than expected; it was not read.",
-			);
+			return {
+				ok: true,
+				status: res.status,
+				headers: res.headers,
+				body: "",
+				notUtf8: false,
+				truncated: true,
+			};
 		if (res.kind === "refused")
 			throw new CaldavError(
 				400,
@@ -275,15 +284,16 @@ export class CaldavClient {
 			body,
 		});
 		if (res.status !== 207) return this.fail(res, what);
+		if (res.truncated) throw new CaldavError(502, TOO_LARGE);
 		return multistatus(res.body);
 	}
 
 	/** Nextcloud's version string from the public status endpoint, or null if it isn't there. */
 	async version(): Promise<string | null> {
 		const base = this.root.slice(0, -"remote.php/dav/".length);
-		const res = await this.sendTo("GET", `${this.origin}${base}status.php`);
-		if (res.status < 200 || res.status > 299) return null;
 		try {
+			const res = await this.sendTo("GET", `${this.origin}${base}status.php`);
+			if (res.status < 200 || res.status > 299 || res.truncated) return null;
 			const s = JSON.parse(res.body) as { versionstring?: unknown };
 			return typeof s.versionstring === "string" ? s.versionstring : null;
 		} catch {
@@ -503,6 +513,7 @@ export class CaldavClient {
 		});
 		if (res.status === 404) return null;
 		if (res.status !== 207) this.fail(res, "check");
+		if (res.truncated) throw new CaldavError(502, TOO_LARGE);
 		const r = multistatus(res.body).responses[0];
 		if (!r) throw new CaldavError(502, `Nextcloud gave no answer for ${href}.`);
 		return this.etagOf(r);
@@ -536,6 +547,11 @@ export class CaldavClient {
 		});
 		if (res.status === 404 || res.status === 410) return null;
 		if (res.status < 200 || res.status > 299) this.fail(res, "download");
+		if (res.truncated)
+			throw new CaldavError(
+				413,
+				"A task in Nextcloud is larger than 12 MB; it is skipped.",
+			);
 		const etag = res.headers.etag;
 		if (!etag)
 			throw new CaldavError(502, "Nextcloud sent a task without an ETag.");

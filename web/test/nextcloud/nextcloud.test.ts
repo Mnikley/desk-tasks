@@ -299,6 +299,46 @@ describe.skipIf(!enabled)("the core (real Nextcloud)", () => {
 		expect(text).toContain("TRIGGER;RELATED=END:PT0S\r\n");
 	});
 
+	test("start, pin, privacy, location, link and progress write only their own lines", async () => {
+		const before = (await remote("tasksorg-subtask.ics")).text;
+		await ok(
+			patch("tasksorg-subtask.ics", {
+				start: { date: "2026-10-20", minutes: 8 * 60 },
+				pinned: true,
+				klass: "CONFIDENTIAL",
+				location: "Office",
+				url: "https://example.com/q4",
+				progress: 30,
+			}),
+		);
+		const d = diff(before, (await remote("tasksorg-subtask.ics")).text);
+		const props = (lines: string[]) =>
+			[...new Set(lines.map((l) => l.split(/[;:]/)[0]))].sort();
+		expect(props(d.added)).toEqual(
+			[
+				"CLASS",
+				"DTSTAMP",
+				"DTSTART",
+				"LAST-MODIFIED",
+				"LOCATION",
+				"PERCENT-COMPLETE",
+				"STATUS",
+				"URL",
+				"X-PINNED",
+			].filter(
+				(p) => before.includes("LAST-MODIFIED") || p !== "LAST-MODIFIED",
+			),
+		);
+		// A new timed start floats; the due keeps its zone.
+		expect(d.added).toContain("DTSTART:20261020T080000\r\n");
+		expect(task("tasksorg-subtask.ics")).toMatchObject({
+			pinned: true,
+			klass: "CONFIDENTIAL",
+			location: "Office",
+			status: "IN-PROCESS",
+		});
+	});
+
 	test("all-day, time-zone and floating due dates round-trip unchanged through other edits", async () => {
 		const dueLine = (t: string) => /\r?\nDUE[^\r\n]*/.exec(t)?.[0];
 		for (const name of [
@@ -318,12 +358,12 @@ describe.skipIf(!enabled)("the core (real Nextcloud)", () => {
 		const t = await ok(
 			patch("tasksorg-subtask.ics", { dueDate: "2026-10-26" }),
 		);
-		expect(t.due).toMatchObject({
+		expect(t?.due).toMatchObject({
 			date: "2026-10-26",
 			minutes: 14 * 60 + 30,
 			zone: "Europe/Berlin",
 		});
-		expect(t.due?.at).toBe(Date.UTC(2026, 9, 26, 13, 30, 1)); // CET after the switch
+		expect(t?.due?.at).toBe(Date.UTC(2026, 9, 26, 13, 30, 1)); // CET after the switch
 		const d = diff(before, (await remote("tasksorg-subtask.ics")).text);
 		expect(d.added.filter((l) => l.startsWith("DUE"))).toEqual([
 			"DUE;TZID=Europe/Berlin:20261026T143001\r\n",

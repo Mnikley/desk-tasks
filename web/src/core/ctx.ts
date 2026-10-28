@@ -17,6 +17,8 @@ export interface Ctx {
 	/** IANA zone for floating times, DATE values and "today" (the Windows zone in the app). */
 	tz: string;
 	log: Logger;
+	/** Set inside an undo group (see undo.ts `journaled`): its journal entries carry it. */
+	group?: number;
 }
 
 export const consoleLogger: Logger = {
@@ -69,7 +71,17 @@ export async function attempt<T>(fn: () => Promise<T>): Promise<Result<T>> {
 		try {
 			asCore(err);
 		} catch (e) {
-			if (e instanceof CoreError) return { ok: false, error: e.failure };
+			const steps = (err as { steps?: number[] }).steps;
+			const left = (err as { left?: number[] }).left;
+			if (e instanceof CoreError)
+				return {
+					ok: false,
+					error: {
+						...e.failure,
+						...(steps?.length ? { steps } : {}),
+						...(left?.length ? { left } : {}),
+					},
+				};
 			const failure: Failure = {
 				kind: "refused",
 				message: `Something went wrong: ${(e as Error).message}`,

@@ -77,15 +77,12 @@ export class IdbPersister implements Persister {
 				if (c.record) s.put(c.record);
 				else s.delete(c.href);
 			} else if (c.type === "journal") tx.objectStore("journal").put(c.entry);
+			else if (c.type === "journal-prune")
+				tx.objectStore("journal").delete(
+					IDBKeyRange.upperBound(c.keepFrom, true),
+				);
 			else if (c.type === "meta") tx.objectStore("kv").put(c.meta, "meta");
 		}
-		await done(tx);
-	}
-
-	/** Prunes journal rows the store no longer keeps. */
-	async pruneJournal(keepFromId: number): Promise<void> {
-		const tx = this.db.transaction(["journal"], "readwrite");
-		tx.objectStore("journal").delete(IDBKeyRange.upperBound(keepFromId, true));
 		await done(tx);
 	}
 }
@@ -94,7 +91,10 @@ export class IdbPersister implements Persister {
 export function combine(...ps: Persister[]): Persister {
 	return {
 		async write(changes) {
-			for (const p of ps) await p.write(changes);
+			// Every persister gets the batch, even when one fails; the first failure is reported.
+			const results = await Promise.allSettled(ps.map((p) => p.write(changes)));
+			const failed = results.find((r) => r.status === "rejected");
+			if (failed) throw (failed as PromiseRejectedResult).reason;
 		},
 	};
 }

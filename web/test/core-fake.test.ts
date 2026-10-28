@@ -135,7 +135,7 @@ describe("412: a change made elsewhere meanwhile", () => {
 		fake.edit(`${list}a.ics`, (t) => t.replace("PRIORITY:5", "PRIORITY:1"));
 		const theirs = fake.get(`${list}a.ics`);
 		const res = await patch("a", { priority: "high" });
-		expect(res.ok && res.value.priority).toBe("high");
+		expect(res.ok && res.value?.priority).toBe("high");
 		expect(fake.get(`${list}a.ics`)).toBe(theirs); // nothing written
 	});
 

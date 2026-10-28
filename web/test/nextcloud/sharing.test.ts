@@ -10,6 +10,7 @@ import { type TestCore, testCore } from "../helpers.ts";
 import {
 	BOB,
 	CAL_HOME,
+	davAs,
 	GROUP,
 	mkcalendarAs,
 	putAs,
@@ -157,5 +158,22 @@ describe.skipIf(!enabled)("lists shared with me (real Nextcloud)", () => {
 			updateTask(core.ctx, byUid("rwpub")?.href ?? "", { priority: "high" }),
 		);
 		expect(res.ok).toBe(true);
+	});
+
+	test("making a task private in a list shared with me saves it, and it leaves my view without pausing", async () => {
+		const t = byUid("rwpub");
+		const res = await attempt(() =>
+			updateTask(core.ctx, t?.href ?? "", { klass: "PRIVATE" }),
+		);
+		expect(res.ok && res.value).toBeNull();
+		expect(core.ctx.store.settings.paused).toBeNull();
+		expect(byUid("rwpub")).toBeUndefined();
+		// Bob, the owner, has it with CLASS:PRIVATE.
+		const owner = await davAs(
+			BOB,
+			"GET",
+			`/remote.php/dav/calendars/${BOB.name}/rw-${suffix}/pub.ics`,
+		);
+		expect(await owner.text()).toContain("CLASS:PRIVATE\r\n");
 	});
 });

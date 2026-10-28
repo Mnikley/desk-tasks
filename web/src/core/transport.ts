@@ -45,7 +45,22 @@ export type DavResult =
 			body: string;
 			notUtf8: boolean;
 	  }
-	| { ok: false; kind: TransportFailure; message: string };
+	| {
+			ok: false;
+			kind: Exclude<TransportFailure, "too-large">;
+			message: string;
+	  }
+	| {
+			/**
+			 * The answer came, but its body was over its cap and wasn't read. The status and
+			 * headers are known: a write that got a 2xx still went through.
+			 */
+			ok: false;
+			kind: "too-large";
+			status: number;
+			headers: Record<string, string>;
+			message: string;
+	  };
 
 export type Send = (req: DavRequest) => Promise<DavResult>;
 

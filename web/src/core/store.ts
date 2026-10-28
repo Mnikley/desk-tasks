@@ -77,6 +77,8 @@ export interface JournalEntry {
 	message: string;
 	undoOf: number | null;
 	undoneBy: number | null;
+	/** The undo group (user action) that made it, or null. */
+	group: number | null;
 }
 
 /** The durable part of the state (the bridge's settings.json in the app). */
@@ -100,6 +102,8 @@ export type Change =
 	| { type: "task"; href: string; record: TaskRecord | null }
 	| { type: "list"; href: string; record: ListRecord | null }
 	| { type: "journal"; entry: JournalEntry }
+	/** Journal entries older than `keepFrom` are no longer kept. */
+	| { type: "journal-prune"; keepFrom: number }
 	| { type: "meta"; meta: SyncMeta }
 	| { type: "settings"; settings: DurableSettings };
 
@@ -154,10 +158,10 @@ export class Store {
 	) {
 		for (const t of snapshot?.tasks ?? []) this.taskMap.set(t.href, t);
 		for (const l of snapshot?.lists ?? []) this.listMap.set(l.href, l);
-		this.journalRows = [...(snapshot?.journal ?? [])].sort(
-			(a, b) => a.id - b.id,
-		);
-		this.nextJournalId = (this.journalRows.at(-1)?.id ?? 0) + 1;
+		const journal = [...(snapshot?.journal ?? [])].sort((a, b) => a.id - b.id);
+		// Ids continue after the newest stored one, also when older rows are dropped.
+		this.nextJournalId = (journal.at(-1)?.id ?? 0) + 1;
+		this.journalRows = journal.slice(-JOURNAL_MAX);
 		if (snapshot?.meta) this.metaValue = { ...EMPTY_META, ...snapshot.meta };
 		if (snapshot?.settings)
 			this.settingsValue = { ...DEFAULT_SETTINGS, ...snapshot.settings };
@@ -174,9 +178,17 @@ export class Store {
 			const p = this.persister;
 			this.writing = this.writing
 				.then(() => p.write(batch))
-				.catch((err: unknown) => {
-					console.error("Writing the local copy failed:", err);
-				});
+				.then(
+					() => {
+						this.storageError = null;
+					},
+					(err: unknown) => {
+						const e = err instanceof Error ? err : new Error(String(err));
+						this.storageError = e;
+						this.failure = e;
+						console.error("Writing the local copy failed:", e);
+					},
+				);
 		} else this.pending = [];
 		if (!this.notifyQueued) {
 			this.notifyQueued = true;
@@ -193,10 +205,20 @@ export class Store {
 		return () => this.listeners.delete(fn);
 	}
 
-	/** Resolves once every change so far has been handed to the persister. */
-	flush(): Promise<void> {
-		return this.writing;
+	/**
+	 * Resolves once every change so far is stored; rejects when writing the local copy failed
+	 * since the last flush (the error is also kept in `storageError` for the UI).
+	 */
+	async flush(): Promise<void> {
+		await this.writing;
+		const err = this.failure;
+		this.failure = null;
+		if (err) throw err;
 	}
+
+	/** The last failure writing the local copy, until the next successful write. */
+	storageError: Error | null = null;
+	private failure: Error | null = null;
 
 	// ---------- tasks ----------
 
@@ -238,8 +260,11 @@ export class Store {
 		syncStarted?: number,
 	): boolean {
 		const cur = this.taskMap.get(rec.href);
-		if (cur && syncStarted !== undefined && cur.syncedAt > syncStarted)
-			return false;
+		if (syncStarted !== undefined) {
+			if (cur && cur.syncedAt > syncStarted) return false;
+			// A write deleted or moved it after the sync began: the sync's copy is older.
+			if ((this.tombstones.get(rec.href) ?? -1) > syncStarted) return false;
+		} else this.tombstones.delete(rec.href);
 		const record = { ...rec, syncedAt: now };
 		this.taskMap.set(rec.href, record);
 		this.idOf(rec.href);
@@ -257,10 +282,20 @@ export class Store {
 		return true;
 	}
 
+	/** When a write last removed an href; a sync that began before then can't bring it back. */
+	private readonly tombstones = new Map<string, number>();
+
+	/** A write deleted the task (or moved it away): forget it, and keep syncs from reviving it. */
+	forgetTask(href: string, now: number): void {
+		this.tombstones.set(href, now);
+		this.dropTask(href);
+	}
+
 	/** A task moved to another href: same session id, new place. */
 	moveTask(from: string, rec: Omit<TaskRecord, "syncedAt">, now: number): void {
 		const id = this.ids.get(from);
-		this.dropTask(from);
+		this.forgetTask(from, now);
+		this.ids.delete(from);
 		if (id !== undefined) this.ids.set(rec.href, id);
 		this.putTask(rec, now);
 	}
@@ -297,9 +332,13 @@ export class Store {
 	// ---------- journal ----------
 
 	addJournal(
-		e: Omit<JournalEntry, "id" | "undoneBy" | "undoOf" | "message"> & {
+		e: Omit<
+			JournalEntry,
+			"id" | "undoneBy" | "undoOf" | "message" | "group"
+		> & {
 			message?: string;
 			undoOf?: number;
+			group?: number;
 		},
 	): number {
 		const entry: JournalEntry = {
@@ -313,11 +352,17 @@ export class Store {
 			message: e.message ?? "",
 			undoOf: e.undoOf ?? null,
 			undoneBy: null,
+			group: e.group ?? null,
 		};
 		this.journalRows.push(entry);
-		if (this.journalRows.length > JOURNAL_MAX)
-			this.journalRows = this.journalRows.slice(-JOURNAL_MAX);
 		this.changed({ type: "journal", entry });
+		if (this.journalRows.length > JOURNAL_MAX) {
+			this.journalRows = this.journalRows.slice(-JOURNAL_MAX);
+			this.changed({
+				type: "journal-prune",
+				keepFrom: this.journalRows[0]?.id ?? entry.id,
+			});
+		}
 		return entry.id;
 	}
 
@@ -342,6 +387,12 @@ export class Store {
 
 	lastJournalId(): number {
 		return this.journalRows.at(-1)?.id ?? 0;
+	}
+
+	private nextGroup = 1;
+	/** A fresh undo group id for this session. */
+	newGroup(): number {
+		return this.nextGroup++;
 	}
 
 	// ---------- meta and settings ----------
