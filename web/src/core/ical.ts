@@ -631,6 +631,40 @@ export class TaskDocument {
 		this.remove("PERCENT-COMPLETE");
 	}
 
+	/**
+	 * Sets the parent: only the first RELATED-TO with RELTYPE=PARENT or no RELTYPE changes (in
+	 * place, its parameters kept); CHILD, SIBLING and RFC 9253 relations stay untouched. null
+	 * removes that one line; a task without one gets a plain RELATED-TO.
+	 */
+	setParent(uid: string | null): void {
+		const parent = this.own("RELATED-TO").find(({ line }) => {
+			const t = line.params.find((p) => p.name === "RELTYPE")?.value;
+			return !t || t.toUpperCase() === "PARENT";
+		});
+		if (parent) {
+			if (uid === null) this.lines.splice(parent.index, 1);
+			else if (parent.line.value.trim() !== uid)
+				this.lines[parent.index] = this.make(
+					parent.line.head,
+					uid,
+					parent.line.eol,
+				);
+			return;
+		}
+		if (uid === null) return;
+		// A new line; `set` would replace a CHILD or SIBLING relation, so insert it directly.
+		const [b, e] = this.range();
+		let at = e;
+		for (let i = b + 1; i < e; i++) {
+			const l = this.lines[i];
+			if (l?.path !== TODO_PATH || l.name === "BEGIN") {
+				at = i;
+				break;
+			}
+		}
+		this.lines.splice(at, 0, this.make("RELATED-TO", uid, this.eolOfTodo()));
+	}
+
 	/** X-APPLE-SORT-ORDER (manual order), an integer as every client writes it. */
 	setSortOrder(n: number): void {
 		if (this.fields().sortOrder === n) return;

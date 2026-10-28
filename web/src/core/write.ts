@@ -83,6 +83,8 @@ export interface Change {
 	close?: boolean;
 	/** Reminders to add (DISPLAY alarms) and to remove (by `Alarm.key`); others stay as written. */
 	reminders?: { add?: Trigger[]; remove?: string[] };
+	/** UID of the new parent (same list), or null for top level. Use cascade.ts `setParent`. */
+	parent?: string | null;
 }
 
 export interface CreateInput extends Change {
@@ -118,6 +120,7 @@ const TOUCHES: Record<keyof Change, (f: TaskFields) => unknown> = {
 	order: (f) => f.sortOrder,
 	repeat: (f) => [f.rrule, f.repeatFromCompletion],
 	reminders: (f) => f.alarms.map((a) => a.key),
+	parent: (f) => f.parentUid,
 	close: (f) => [f.status, f.completed, f.percent],
 };
 
@@ -248,6 +251,10 @@ export function applyChange(ctx: Ctx, text: string, c: Change): string {
 	if (c.progress !== undefined) doc.setProgress(c.progress, ctx.now());
 	if (c.pinned !== undefined) doc.setPinned(c.pinned);
 	if (c.order !== undefined) doc.setSortOrder(c.order);
+	if (c.parent !== undefined && c.parent !== f.parentUid) {
+		if (c.parent === f.uid) invalid("A task can't be its own subtask.");
+		doc.setParent(c.parent);
+	}
 	if (c.klass !== undefined) doc.setClass(c.klass);
 	if (c.location !== undefined && c.location !== f.location)
 		doc.setText("LOCATION", c.location);
@@ -326,7 +333,11 @@ export function applyChange(ctx: Ctx, text: string, c: Change): string {
 
 // ---------- gate, journal, failures ----------
 
-function gate(ctx: Ctx, list: ListRecord, row?: TaskRecord): CaldavClient {
+export function gate(
+	ctx: Ctx,
+	list: ListRecord,
+	row?: TaskRecord,
+): CaldavClient {
 	const dc = assertConnectedWritable(ctx);
 	if (list.error?.kind === "gone")
 		throw new CoreError("gone", `“${list.name}” isn't in Nextcloud any more.`);
@@ -706,6 +717,27 @@ export async function createTask(
 
 // ---------- delete & move (with subtasks) ----------
 
+/**
+ * Refuses a change to several tasks before anything is sent when one of them can't be changed,
+ * naming it: "“Buy tiles” can't be changed: … Nothing was changed."
+ */
+export function checkAll(
+	ctx: Ctx,
+	list: ListRecord,
+	nodes: TaskRecord[],
+): void {
+	gate(ctx, list);
+	for (const n of nodes) {
+		const f = parsed(n)?.f ?? null;
+		const reason = readOnlyReason(n, list, f);
+		if (reason)
+			throw new CoreError(
+				"refused",
+				`“${f?.summary || "A task"}” can't be changed: ${reason} Nothing was changed.`,
+			);
+	}
+}
+
 /** The task and its subtasks in the same list, children before parents (all of the mirror). */
 export function subtree(ctx: Ctx, row: TaskRecord): TaskRecord[] {
 	const rows = ctx.store.tasksOf(row.list);
@@ -757,6 +789,7 @@ export async function deleteTask(
 	const { row, list } = taskRow(ctx, href);
 	const nodes = subtree(ctx, row);
 	let dc: CaldavClient | null = null;
+	checkAll(ctx, list, nodes);
 	for (const n of nodes) dc = gate(ctx, list, n);
 	if (!dc) throw new Error("Broken invariant: an empty subtree.");
 	const client = dc;
@@ -830,7 +863,7 @@ export async function moveTask(
 	const target = listOf(ctx, to);
 	if (target.href === list.href) return taskView(ctx, href);
 	const nodes = subtree(ctx, row);
-	for (const n of nodes) gate(ctx, list, n);
+	checkAll(ctx, list, nodes);
 	if (!target.components.includes("VTODO"))
 		throw new CoreError("refused", `“${target.name}” can't hold tasks.`);
 	const dc = gate(ctx, target);
@@ -850,9 +883,13 @@ async function moveOne(
 	fromList: string,
 	target: ListRecord,
 	undoOf?: number,
+	/** Where to put it; by default a fresh file name. */
+	to?: string,
 ): Promise<string> {
-	// A fresh file name: Nextcloud may report a re-used href as deleted (see the research doc).
-	const dest = `${target.href.replace(/\/*$/, "/")}${crypto.randomUUID()}.ics`;
+	// A fresh file name: Nextcloud may report a re-used href as deleted (see the research doc);
+	// the sync confirms every reported deletion, so an undo can still use the old name.
+	const dest =
+		to ?? `${target.href.replace(/\/*$/, "/")}${crypto.randomUUID()}.ics`;
 	const before = version(n.href, fromList, n);
 	try {
 		await dc.move(n.href, dest, n.etag);
@@ -973,7 +1010,9 @@ export async function undo(ctx: Ctx, journalId: number): Promise<void> {
 		const back = listOf(ctx, before.list);
 		gate(ctx, listOf(ctx, after.list));
 		const dc = gate(ctx, back);
-		await moveOne(ctx, dc, after, after.list, back, e.id);
+		// Back to its old href, so earlier steps of the same Undo (a field change before the
+		// move) still find it where they wrote it.
+		await moveOne(ctx, dc, after, after.list, back, e.id, before.href);
 	} else throw new CoreError("refused", "This change can't be undone.");
 	ctx.store.markUndone(journalId);
 }

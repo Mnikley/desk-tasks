@@ -4,6 +4,7 @@
 // asked for (a differing read-back, a lost answer).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { CaldavClient, CaldavError } from "../../src/core/caldav.ts";
+import { moveToList } from "../../src/core/cascade.ts";
 import { attempt } from "../../src/core/ctx.ts";
 import type { Failure } from "../../src/core/errors.ts";
 import {
@@ -13,7 +14,7 @@ import {
 } from "../../src/core/order.ts";
 import { sync } from "../../src/core/sync.ts";
 import { listTasks, type TaskView } from "../../src/core/tasks.ts";
-import { journaled } from "../../src/core/undo.ts";
+import { journaled, undoSteps } from "../../src/core/undo.ts";
 import {
 	type Change,
 	createTask,
@@ -546,6 +547,32 @@ describe.skipIf(!enabled)("the core (real Nextcloud)", () => {
 			attempt(() => undo(core.ctx, core.ctx.store.journal()[0]?.id ?? 0)),
 		);
 		expect(tasks().find((x) => x.id === parent.id)?.list).toBe(list);
+	});
+
+	test("a subtask moved alone arrives top-level; Undo puts it back under its parent and a sync keeps it", async () => {
+		const parent = await ok(
+			attempt(() => createTask(core.ctx, { list, summary: "Renovate" })),
+		);
+		const child = await ok(
+			attempt(() =>
+				createTask(core.ctx, { parent: parent.href, summary: "Buy paint" }),
+			),
+		);
+		const before = (await getObject(child.href))?.text;
+		const res = await ok(
+			attempt(() =>
+				journaled(core.ctx, (g) => moveToList(g, child.href, other)),
+			),
+		);
+		const moved = tasks().find((t) => t.uid === child.uid);
+		expect(moved).toMatchObject({ list: other, parentUid: null });
+		await undoSteps(core.ctx, res.steps);
+		expect((await getObject(child.href))?.text).toBe(before);
+		await forced();
+		expect(tasks().find((t) => t.uid === child.uid)).toMatchObject({
+			href: child.href,
+			parentUid: parent.uid,
+		});
 	});
 
 	test("delete with subtasks, then undo restores the bytes", async () => {
