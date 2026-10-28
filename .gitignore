@@ -1,0 +1,6 @@
+.screenshots/
+node_modules/
+.venv/
+dist/
+src/desk_tasks/web/
+__pycache__/
