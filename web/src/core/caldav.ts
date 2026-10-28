@@ -613,6 +613,86 @@ export class CaldavClient {
 		if (res.status < 200 || res.status > 299) this.fail(res, "restore");
 	}
 
+	// ---------- sharing ----------
+
+	/** Who a list I own is shared with (oc:invite, re-read after every change). */
+	async sharees(href: string): Promise<Sharee[]> {
+		const ms = await this.xml(
+			"PROPFIND",
+			href,
+			`<d:propfind xmlns:d="DAV:" xmlns:oc="${OC}"><d:prop><oc:invite/></d:prop></d:propfind>`,
+			"0",
+			"share listing",
+		);
+		const r = ms.responses[0];
+		return r ? kids(prop(r, OC, "invite"), OC, "user").map(sharee) : [];
+	}
+
+	/**
+	 * Shares or unshares a list (owner only): `<o:share>` with set / remove, at most 10 per
+	 * request. Nextcloud answers 200 even when it skipped a sharee, so callers re-read sharees.
+	 */
+	async share(
+		href: string,
+		sets: { href: string; readWrite: boolean }[],
+		removes: string[] = [],
+	): Promise<void> {
+		const items = [
+			...sets.map(
+				(x) =>
+					`<o:set><d:href>${esc(x.href)}</d:href>${x.readWrite ? "<o:read-write/>" : ""}</o:set>`,
+			),
+			...removes.map((r) => `<o:remove><d:href>${esc(r)}</d:href></o:remove>`),
+		];
+		for (let i = 0; i < items.length; i += 10) {
+			const res = await this.send("POST", href, {
+				headers: { "Content-Type": "application/xml; charset=utf-8" },
+				body: `<?xml version="1.0" encoding="utf-8"?><o:share xmlns:d="DAV:" xmlns:o="${OC}">${items.slice(i, i + 10).join("")}</o:share>`,
+			});
+			if (res.status < 200 || res.status > 299)
+				this.fail(res, "sharing change");
+		}
+	}
+
+	/**
+	 * Users and groups whose display name matches (DAV principal-property-search, what the Tasks
+	 * app uses; Nextcloud applies the admin's sharing rules to it). The share href is
+	 * "principal:" + the principal URL without the DAV root and trailing slash.
+	 */
+	async searchPrincipals(
+		match: string,
+	): Promise<{ href: string; name: string; kind: "user" | "group" }[]> {
+		const ms = await this.xml(
+			"REPORT",
+			this.root,
+			`<?xml version="1.0" encoding="utf-8"?><d:principal-property-search xmlns:d="DAV:" xmlns:c="${CALDAV}"><d:property-search><d:prop><d:displayname/></d:prop><d:match>${esc(match)}</d:match></d:property-search><d:prop><d:displayname/><c:calendar-user-type/><d:principal-URL/></d:prop><d:apply-to-principal-collection-set/></d:principal-property-search>`,
+			"0",
+			"people search",
+		);
+		return ms.responses.flatMap((r) => {
+			const type = prop(r, CALDAV, "calendar-user-type")
+				?.text.trim()
+				.toUpperCase();
+			if (type !== "INDIVIDUAL" && type !== "GROUP") return [];
+			const url =
+				kid(prop(r, DAV, "principal-URL"), DAV, "href")?.text.trim() || r.href;
+			// "principals/users/alice" from "/remote.php/dav/principals/users/alice/".
+			const key = new URL(this.url(url)).pathname
+				.slice(this.root.length)
+				.replace(/\/+$/, "");
+			return [
+				{
+					href: `principal:${key}`,
+					name:
+						prop(r, DAV, "displayname")?.text.trim() ||
+						key.split("/").pop() ||
+						key,
+					kind: type === "GROUP" ? ("group" as const) : ("user" as const),
+				},
+			];
+		});
+	}
+
 	/** Deletes a trashed task for good. */
 	async deleteForever(href: string): Promise<void> {
 		const res = await this.send("DELETE", href, {

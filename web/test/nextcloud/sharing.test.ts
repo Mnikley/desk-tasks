@@ -3,11 +3,20 @@
 // before any request, never sees bob's PRIVATE tasks and marks his CONFIDENTIAL ones redacted.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { attempt } from "../../src/core/ctx.ts";
+import { createList } from "../../src/core/lists.ts";
+import {
+	searchSharees,
+	setAccess,
+	share,
+	skippedText,
+	unshare,
+} from "../../src/core/sharing.ts";
 import { sync } from "../../src/core/sync.ts";
 import { listTasks } from "../../src/core/tasks.ts";
 import { createTask, updateTask } from "../../src/core/write.ts";
 import { type TestCore, testCore } from "../helpers.ts";
 import {
+	ALICE,
 	BOB,
 	CAL_HOME,
 	davAs,
@@ -177,3 +186,109 @@ describe.skipIf(!enabled)("lists shared with me (real Nextcloud)", () => {
 		expect(await owner.text()).toContain("CLASS:PRIVATE\r\n");
 	});
 });
+
+describe.skipIf(!enabled)(
+	"sharing a list from desk-tasks (real Nextcloud)",
+	() => {
+		let core: TestCore;
+		let list = "";
+		beforeAll(async () => {
+			core = testCore({
+				url: URL_,
+				now: Date.now(),
+				user: USER.name,
+				password: APP_PASSWORD,
+			});
+			core.ctx.now = () => Date.now();
+			await sync(core.ctx, { force: true });
+			const made = await attempt(() =>
+				createList(core.ctx, {
+					name: `Shared out ${suffix}`,
+					color: "#3a5bd9",
+				}),
+			);
+			if (!made.ok) throw new Error(made.error.message);
+			list = made.value;
+		});
+		const value = <T>(
+			r: { ok: true; value: T } | { ok: false; error: { message: string } },
+		) => {
+			if (!r.ok) throw new Error(r.error.message);
+			return r.value;
+		};
+
+		test("people search finds users and groups; the share href is principal:…", async () => {
+			const found = value(
+				await attempt(() => searchSharees(core.ctx, list, "Ali")),
+			);
+			expect(found).toContainEqual({
+				href: "principal:principals/users/alice",
+				name: "Alice",
+				kind: "user",
+			});
+			const groups = value(
+				await attempt(() => searchSharees(core.ctx, list, GROUP)),
+			);
+			expect(
+				groups.some(
+					(g) =>
+						g.kind === "group" &&
+						g.href === `principal:principals/groups/${GROUP}`,
+				),
+			).toBe(true);
+			expect(
+				value(await attempt(() => searchSharees(core.ctx, list, "a"))),
+			).toEqual([]);
+		});
+
+		test("share view only, switch to can edit, add the group, remove; alice sees each step", async () => {
+			const alice = { href: "principal:principals/users/alice", name: "Alice" };
+			let res = value(await attempt(() => share(core.ctx, list, [alice])));
+			expect(res.skipped).toEqual([]);
+			expect(res.sharees).toEqual([
+				expect.objectContaining({
+					href: alice.href,
+					access: "read",
+					kind: "user",
+				}),
+			]);
+			const aliceView = async () =>
+				(
+					await davAs(ALICE, "PROPFIND", `/remote.php/dav/calendars/alice/`, {
+						headers: { Depth: "1" },
+						body: '<d:propfind xmlns:d="DAV:"><d:prop><d:current-user-privilege-set/></d:prop></d:propfind>',
+					})
+				).text();
+			expect(await aliceView()).toContain(`_shared_by_${USER.name}`);
+			const s = res.sharees[0];
+			if (!s) throw new Error("no sharee");
+			res = value(await attempt(() => setAccess(core.ctx, list, s, true)));
+			expect(res.sharees[0]?.access).toBe("read-write");
+			res = value(
+				await attempt(() =>
+					share(core.ctx, list, [
+						{ href: `principal:principals/groups/${GROUP}`, name: GROUP },
+					]),
+				),
+			);
+			expect(res.sharees.map((x) => x.kind).sort()).toEqual(["group", "user"]);
+			res = value(await attempt(() => unshare(core.ctx, list, s)));
+			expect(res.sharees.map((x) => x.kind)).toEqual(["group"]);
+			expect(core.ctx.store.list(list)?.sharees).toEqual(res.sharees);
+		});
+
+		test("a share with someone who doesn't exist answers 200 and is reported as skipped", async () => {
+			const res = value(
+				await attempt(() =>
+					share(core.ctx, list, [
+						{ href: "principal:principals/users/nobody-here", name: "Carol" },
+					]),
+				),
+			);
+			expect(res.skipped).toEqual(["Carol"]);
+			expect(skippedText("Carol")).toBe(
+				"Couldn't share with Carol. Your Nextcloud's sharing settings may not allow it.",
+			);
+		});
+	},
+);

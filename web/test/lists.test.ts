@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { principalKey } from "../src/core/caldav.ts";
 import { attempt } from "../src/core/ctx.ts";
 import { createList } from "../src/core/lists.ts";
+import { share } from "../src/core/sharing.ts";
 import { sync } from "../src/core/sync.ts";
 import { listTasks } from "../src/core/tasks.ts";
 import { updateTask } from "../src/core/write.ts";
@@ -175,4 +176,20 @@ test("Nextcloud's list limit and creation rate limit read as next steps", async 
 		);
 		expect(!res.ok && res.error.message).toBe(message);
 	}
+});
+
+test("only the owner shares: a sharee is told who can, before any request", async () => {
+	const shared = fake.addList("s_shared_by_bob", "S", ["VTODO"], true, {
+		owner: "principals/users/bob",
+		ownerName: "Bob",
+	});
+	await sync(core.ctx, { force: true });
+	const n = core.log.length;
+	const res = await attempt(() =>
+		share(core.ctx, shared, [
+			{ href: "principal:principals/users/x", name: "X" },
+		]),
+	);
+	expect(!res.ok && res.error.message).toBe("Only Bob can share this list.");
+	expect(core.log.length).toBe(n);
 });
