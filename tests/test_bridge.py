@@ -4,7 +4,9 @@ validated, results are data (never exceptions)."""
 from __future__ import annotations
 
 import json
+import logging
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -227,3 +229,99 @@ def test_log_never_raises(tmp_path: Path) -> None:
     api, _, _ = make(tmp_path)
     api.log("error", "boom\nstack")
     api.log(None, {"x": 1})
+
+
+def test_connecting_again_while_connected_is_refused(fake: Fake, tmp_path: Path) -> None:
+    """A compromised page must not switch the account to another server."""
+    cloud = Cloud(fake, pending_polls=0)
+    api, _, _ = make(tmp_path)
+    assert api.connect_manual(fake.url, cloud.login_name, cloud.app_password)["state"] == "done"
+    for r in (
+        api.connect_manual("https://evil.example", "x", "y"),
+        api.connect_start("https://evil.example"),
+    ):
+        assert r["state"] == "failed" and r["reason"] == "connected"
+    assert api.settings_get()["server"] == fake.url
+
+
+def test_logging_out_while_a_login_finishes_stays_logged_out(fake: Fake, tmp_path: Path) -> None:
+    cloud = Cloud(fake, pending_polls=0)
+    api, _, vault = make(tmp_path)
+    gate = threading.Event()
+    original = cloud.route
+
+    def slow_propfind(h: Any, s: Any) -> None:
+        if s.method == "PROPFIND":
+            gate.wait(5)
+        original(h, s)
+
+    fake.route = slow_propfind
+    api._login._poll_every = 0.01
+    assert api.connect_start(fake.url)["state"] == "pending"
+    end = time.monotonic() + 5
+    while not any(r.method == "PROPFIND" for r in fake.requests) and time.monotonic() < end:
+        time.sleep(0.01)
+    api.disconnect()
+    gate.set()
+    time.sleep(0.3)
+    assert api.settings_get()["connected"] is False
+    assert "server" not in api.settings_get()
+    assert vault._data == {}
+
+
+def test_a_hostile_login_name_fails_the_flow(fake: Fake, tmp_path: Path) -> None:
+    Cloud(fake, pending_polls=0, login_name="x" * 300)
+    api, _, vault = make(tmp_path)
+    api._login._poll_every = 0.01
+    api.connect_start(fake.url)
+    end = time.monotonic() + 5
+    while api.connect_poll()["state"] == "pending" and time.monotonic() < end:
+        time.sleep(0.01)
+    assert api.connect_poll()["state"] == "failed"
+    assert vault._data == {}
+
+
+def test_no_exception_text_reaches_js(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    api, _, _ = make(tmp_path)
+
+    def boom(*a: object, **k: object) -> None:
+        raise OSError("/home/secret/path: disk full")
+
+    monkeypatch.setattr(api._settings, "set", boom)
+    r = api.settings_set({"readOnly": True})
+    assert r == {"ok": False, "message": bridge.INTERNAL}
+    monkeypatch.setattr(api._login, "start", boom)
+    s = api.connect_start("https://x.example")
+    assert s["state"] == "failed" and "secret" not in s["message"]
+
+
+def test_settings_are_bounded(tmp_path: Path) -> None:
+    api, _, _ = make(tmp_path)
+    for patch in (
+        {"paused": {"reason": "x", "at": True}},
+        {"paused": {"reason": "x", "at": 1, "blob": "y" * 10}},
+        {"lists": {"/a/": {"shown": True, "evil": True}}},
+        {"lists": {"x" * 600: {"shown": True}}},
+    ):
+        assert api.settings_set(patch)["ok"] is False, patch
+    many = {f"/remote.php/dav/calendars/u/{'l' * 400}{i}/": {"shown": True} for i in range(900)}
+    assert api.settings_set({"lists": many})["ok"] is False  # over the file's size cap
+
+
+def test_js_log_is_rate_limited(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    api, _, _ = make(tmp_path)
+    with caplog.at_level(logging.INFO, logger="desk_tasks.web"):
+        for i in range(bridge.LOG_PER_MINUTE + 50):
+            api.log("info", f"line {i}")
+    assert len([r for r in caplog.records if r.name == "desk_tasks.web"]) == bridge.LOG_PER_MINUTE
+
+
+def test_window_guard_decisions() -> None:
+    from desk_tasks.guard import is_app_page, new_window_target
+
+    assert is_app_page("https://app.desk-tasks.example/index.html")
+    for bad in ("https://evil.example/", "http://app.desk-tasks.example/", "file:///C:/x", None):
+        assert not is_app_page(bad)
+    assert new_window_target("https://example.com/") == "https://example.com/"
+    for bad in ("file:///C:/x", "\\\\attacker\\share\\x.lnk", "search-ms:query=x", "javascript:1"):
+        assert new_window_target(bad) is None

@@ -82,6 +82,8 @@ const loginState = z.discriminatedUnion("state", [
 			"rejected",
 			"vault",
 			"cancelled",
+			"connected",
+			"internal",
 		]),
 		message: z.string(),
 	}),

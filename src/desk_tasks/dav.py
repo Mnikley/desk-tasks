@@ -14,9 +14,11 @@ the request is written, so a write that fails there is a plain refusal, not an u
 from __future__ import annotations
 
 import base64
+import contextlib
 import http.client
 import ipaddress
 import logging
+import socket
 import ssl
 import threading
 import time
@@ -138,8 +140,10 @@ class Origin:
         except ValueError:
             raise Refused("That doesn't look like a web address.") from None
         host = (u.hostname or "").lower()
-        if u.scheme not in ("https", "http") or not host:
+        if u.scheme not in ("https", "http") or not host or port == 0:
             raise Refused("That doesn't look like a web address.")
+        if u.query or u.fragment or text.endswith(("?", "#")):
+            raise Refused("Leave out everything after ? or # in the address.")
         if u.username is not None or u.password is not None:
             raise Refused("Leave your user name and password out of the address.")
         if u.scheme == "http" and not is_loopback(host):
@@ -149,6 +153,8 @@ class Origin:
             at = path.find(tail)
             if at >= 0:
                 path = path[:at]
+        if any(ord(c) < 33 or ord(c) > 126 for c in path):
+            raise Refused("That address isn't allowed.")
         _check_segments(path)
         base = "/" + "/".join(s for s in path.split("/") if s)
         base = base if base.endswith("/") else f"{base}/"
@@ -187,11 +193,29 @@ def check_url(origin: Origin, url: object, *, method: str = "GET") -> str:
     if any(ord(c) < 33 or ord(c) > 126 for c in path):
         raise Refused("That address isn't allowed.")
     _check_segments(path)
-    if path.startswith(origin.dav_root):
+    if path.startswith(origin.dav_root) and _allowed(path[len(origin.dav_root) :], method):
         return path
     if method == "GET" and path == f"{origin.base}status.php":
         return path
     raise Refused("That address is outside your Nextcloud's calendars.")
+
+
+#: Methods that only read (or search); everything else changes something.
+_LOOKUPS = frozenset({"GET", "PROPFIND", "REPORT"})
+
+
+def _allowed(rest: str, method: str) -> bool:
+    """What the core needs under remote.php/dav/, and nothing more (an app password reaches
+    the whole account, Files included): the DAV root and principals/ to look up and search,
+    calendars/ for tasks, writes only inside a collection (calendars/<user>/<list>/…)."""
+    parts = rest.split("/")
+    if rest == "" or parts[0] == "principals":
+        return method in ("PROPFIND", "REPORT")
+    if parts[0] != "calendars":
+        return False
+    if method in _LOOKUPS:
+        return True
+    return len(parts) >= 4 and all(parts[1:3])
 
 
 def _is_calendar_collection(origin: Origin, path: str) -> bool:
@@ -229,7 +253,7 @@ def prepare(origin: Origin, req: object) -> Prepared:
             continue
         if low not in ALLOWED_HEADERS:
             raise Refused(f"The header {name[:40]} isn't allowed.")
-        if len(value) > 2000 or any(ord(c) < 32 or ord(c) == 127 for c in value):
+        if len(value) > 2000 or any(ord(c) < 32 or ord(c) > 126 for c in value):
             raise Refused("Malformed request.")
         headers[low] = value
     if "destination" in headers:
@@ -321,6 +345,32 @@ def _read_capped(resp: http.client.HTTPResponse, cap: int, deadline: float) -> b
     return b"".join(chunks)
 
 
+class _Watchdog:
+    """Ends a request at its deadline. Socket timeouts start over with every byte, so a server
+    trickling its answer (or a TLS handshake) could otherwise hold a request, and a pool slot,
+    for ever: at the deadline the socket is shut down and the request fails as a timeout."""
+
+    def __init__(self, conn: http.client.HTTPConnection, seconds: float) -> None:
+        self.fired = False
+        self._conn = conn
+        self._timer = threading.Timer(seconds, self._fire)
+        self._timer.daemon = True
+
+    def _fire(self) -> None:
+        self.fired = True
+        sock = self._conn.sock
+        if sock is not None:
+            with contextlib.suppress(OSError):
+                sock.shutdown(socket.SHUT_RDWR)
+
+    def __enter__(self) -> _Watchdog:
+        self._timer.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._timer.cancel()
+
+
 @dataclass
 class Pool:
     """Up to six requests at a time per origin; idle read connections kept for reuse."""
@@ -333,9 +383,11 @@ class Pool:
     )
     _idle: list[http.client.HTTPConnection] = field(default_factory=list)
     _lock: threading.Lock = field(default_factory=threading.Lock)
+    _closed: bool = False
 
     def close(self) -> None:
         with self._lock:
+            self._closed = True
             idle, self._idle = self._idle, []
         for c in idle:
             c.close()
@@ -346,14 +398,17 @@ class Pool:
 
     def _give(self, conn: http.client.HTTPConnection) -> None:
         with self._lock:
-            if len(self._idle) < POOL_SIZE:
+            if not self._closed and len(self._idle) < POOL_SIZE:
                 self._idle.append(conn)
                 return
         conn.close()
 
     def send(self, p: Prepared, auth: str) -> DavResult:
         headers = {**p.headers, "Authorization": auth, "User-Agent": USER_AGENT}
-        with self._slots:
+        # Waiting for a slot sends nothing: a write that gives up here is a plain failure.
+        if not self._slots.acquire(timeout=self.timeout):
+            return fail("connect", "Too many requests to Nextcloud at once.")
+        try:
             if p.method in READS:
                 reused = self._take()
                 if reused is not None:
@@ -364,14 +419,20 @@ class Pool:
                 conn = self.connector(self.origin, self.timeout)
             except Refused as e:
                 return fail("refused", str(e))
-            try:
-                conn.connect()
-            except (TimeoutError, OSError, ssl.SSLError) as e:
-                conn.close()
-                log.info("dav %s: connect failed (%s)", p.method, type(e).__name__)
-                return fail("connect", "Couldn't connect to Nextcloud.")
-            result, _ = self._exchange(conn, p, headers, reused=False)
-            return result
+            with _Watchdog(conn, self.timeout) as wd:
+                try:
+                    conn.connect()
+                except (TimeoutError, OSError, ssl.SSLError) as e:
+                    conn.close()
+                    log.info("dav %s: connect failed (%s)", p.method, type(e).__name__)
+                    return fail("connect", "Couldn't connect to Nextcloud.")
+                if wd.fired:
+                    conn.close()
+                    return fail("connect", "Couldn't connect to Nextcloud.")
+                result, _ = self._exchange(conn, p, headers, reused=False, wd=wd)
+                return result
+        finally:
+            self._slots.release()
 
     def _exchange(
         self,
@@ -380,18 +441,25 @@ class Pool:
         headers: dict[str, str],
         *,
         reused: bool,
+        wd: _Watchdog | None = None,
     ) -> tuple[DavResult, bool]:
         """One request on an open connection. Returns (result, retry): retry is True only for a
         read on a reused connection that failed before any answer (the server had closed it)."""
+        if wd is None:
+            with _Watchdog(conn, self.timeout) as own:
+                return self._exchange(conn, p, headers, reused=reused, wd=own)
         deadline = time.monotonic() + self.timeout
         keep = False
+        late = fail("timeout", "Nextcloud didn't answer in time.")
         try:
             try:
                 conn.request(p.method, p.path, body=p.body, headers=headers)
                 resp = conn.getresponse()
             except TimeoutError:
-                return fail("timeout", "Nextcloud didn't answer in time."), False
+                return late, False
             except (OSError, http.client.HTTPException) as e:
+                if wd.fired:
+                    return late, False
                 if reused:
                     return fail("network", "Connection lost."), True
                 log.info("dav %s: no answer (%s)", p.method, type(e).__name__)
@@ -410,10 +478,14 @@ class Pool:
                     "message": "Nextcloud's answer was too large.",
                 }, False
             except (_Timeout, TimeoutError):
-                return fail("timeout", "Nextcloud didn't answer in time."), False
+                return late, False
             except (OSError, http.client.HTTPException) as e:
+                if wd.fired:
+                    return late, False
                 log.info("dav %s: answer cut off (%s)", p.method, type(e).__name__)
                 return fail("network", "The connection to Nextcloud was lost."), False
+            if wd.fired:
+                return late, False
             body, not_utf8 = decode(data)
             keep = p.method in READS and not resp.will_close
             return {
@@ -486,23 +558,30 @@ def request_once(
     except Refused as e:
         return fail("refused", str(e))
     try:
-        try:
-            conn.connect()
-        except (TimeoutError, OSError, ssl.SSLError):
-            return fail("connect", "Couldn't connect to Nextcloud.")
-        deadline = time.monotonic() + timeout
-        try:
-            conn.request(
-                method, path, body=body, headers={**(headers or {}), "User-Agent": USER_AGENT}
-            )
-            resp = conn.getresponse()
-            data = _read_capped(resp, cap, deadline)
-        except (_Timeout, TimeoutError):
-            return fail("timeout", "Nextcloud didn't answer in time.")
-        except _TooLarge:
-            return fail("network", "Nextcloud's answer was too large.")
-        except (OSError, http.client.HTTPException):
-            return fail("network", "The connection to Nextcloud was lost.")
-        return Answer(resp.status, _lower_headers(resp.msg), data)
+        with _Watchdog(conn, timeout) as wd:
+            try:
+                conn.connect()
+            except (TimeoutError, OSError, ssl.SSLError):
+                return fail("connect", "Couldn't connect to Nextcloud.")
+            deadline = time.monotonic() + timeout
+            try:
+                conn.request(
+                    method, path, body=body, headers={**(headers or {}), "User-Agent": USER_AGENT}
+                )
+                resp = conn.getresponse()
+                data = _read_capped(resp, cap, deadline)
+            except (_Timeout, TimeoutError):
+                return fail("timeout", "Nextcloud didn't answer in time.")
+            except _TooLarge:
+                return fail("network", "Nextcloud's answer was too large.")
+            except (OSError, http.client.HTTPException):
+                if wd.fired:
+                    return fail("timeout", "Nextcloud didn't answer in time.")
+                return fail("network", "The connection to Nextcloud was lost.")
+            except ValueError:  # UnicodeEncodeError included: an address or header it can't send
+                return fail("refused", "That address isn't allowed.")
+            if wd.fired:
+                return fail("timeout", "Nextcloud didn't answer in time.")
+            return Answer(resp.status, _lower_headers(resp.msg), data)
     finally:
         conn.close()

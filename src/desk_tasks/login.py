@@ -32,7 +32,7 @@ from .dav import (
     open_connection,
     request_once,
 )
-from .settings import SettingsFile
+from .settings import SettingsError, SettingsFile
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +49,8 @@ Reason = Literal[
     "rejected",
     "vault",
     "cancelled",
+    "connected",
+    "internal",
 ]
 
 MESSAGES: dict[Reason, str] = {
@@ -61,6 +63,8 @@ MESSAGES: dict[Reason, str] = {
     "rejected": "Nextcloud rejected the app password.",
     "vault": "Windows Credential Manager didn't store the password.",
     "cancelled": "Login cancelled.",
+    "connected": "You're connected. Log out first to connect another Nextcloud.",
+    "internal": "Something went wrong. The details are in the log.",
 }
 
 
@@ -166,7 +170,7 @@ def verify(
     if status != 207:
         raise _Fail("not-nextcloud")
     principal = principal_of(body)
-    if not principal or uid_of(origin, principal) is None:
+    if not principal or len(principal) > 500 or uid_of(origin, principal) is None:
         raise _Fail("not-nextcloud")
     return Account(origin, login_name, password, principal)
 
@@ -185,6 +189,17 @@ def on_origin(origin: Origin, url: object) -> bool:
         origin.same(u.scheme, u.hostname, port)
         and u.username is None
         and u.path.startswith(origin.base)
+        and all(33 <= ord(c) <= 126 for c in u.path)
+    )
+
+
+def good_login_name(v: object) -> bool:
+    """A login name Basic auth and the keyring can carry: no control characters, no colon."""
+    return (
+        isinstance(v, str)
+        and 0 < len(v) <= 200
+        and ":" not in v
+        and all(ord(c) >= 32 and ord(c) != 127 for c in v)
     )
 
 
@@ -211,6 +226,7 @@ class Connection:
         on_connected: Callable[[Account], None],
         *,
         open_browser: Callable[[str], object],
+        is_connected: Callable[[], bool] = lambda: False,
         connector: Connector = open_connection,
         clock: Callable[[], float] = time.monotonic,
         poll_every: float = POLL_EVERY_S,
@@ -219,6 +235,7 @@ class Connection:
         self._vault = vault
         self._on_connected = on_connected
         self._open_browser = open_browser
+        self._is_connected = is_connected
         self._connector = connector
         self._clock = clock
         self._poll_every = poll_every
@@ -233,6 +250,8 @@ class Connection:
             self._run += 1
             run = self._run
         try:
+            if self._is_connected():
+                raise _Fail("connected")
             if not isinstance(url, str):
                 raise _Fail("address", "Enter your Nextcloud address.")
             try:
@@ -276,6 +295,13 @@ class Connection:
         return login, endpoint, token
 
     def _poll(self, run: int, origin: Origin, endpoint: str, token: str) -> None:
+        try:
+            self._poll_loop(run, origin, endpoint, token)
+        except Exception:
+            log.exception("login flow: the poll loop failed")
+            self._set(run, failed("internal"))
+
+    def _poll_loop(self, run: int, origin: Origin, endpoint: str, token: str) -> None:
         deadline = self._clock() + EXPIRY_S
         path = urlsplit(endpoint).path
         form = urlencode({"token": token}).encode("ascii")
@@ -303,9 +329,9 @@ class Connection:
             login_name, password = v.get("loginName"), v.get("appPassword")
             if not isinstance(login_name, str) or not isinstance(password, str):
                 raise _Fail("not-nextcloud")
-            if not login_name or not password:
+            if not good_login_name(login_name) or not password or len(password) > 200:
                 raise _Fail("not-nextcloud")
-            done = self._store(verify(origin, login_name, password, self._connector))
+            done = self._store(run, verify(origin, login_name, password, self._connector))
         except _Fail as e:
             self._set(run, failed(e.reason, e.message))
             return
@@ -318,34 +344,49 @@ class Connection:
             self._run += 1
             run = self._run
         try:
+            if self._is_connected():
+                raise _Fail("connected")
             if not (
                 isinstance(url, str) and isinstance(user, str) and isinstance(app_password, str)
             ):
                 raise _Fail("address", "Fill in all three fields.")
             user, app_password = user.strip(), app_password.strip()
-            if not user or not app_password or len(user) > 200 or len(app_password) > 200:
+            if not app_password or len(app_password) > 200:
                 raise _Fail("address", "Fill in all three fields.")
+            if not good_login_name(user):
+                raise _Fail("address", "Enter your Nextcloud user name.")
             try:
                 origin = Origin.parse(url)
             except Refused as e:
                 raise _Fail("address", str(e)) from None
-            done = self._store(verify(origin, user, app_password, self._connector))
+            done = self._store(run, verify(origin, user, app_password, self._connector))
         except _Fail as e:
             return self._set(run, failed(e.reason, e.message))
         return self._set(run, done)
 
     # shared
 
-    def _store(self, acc: Account) -> Done:
-        try:
-            self._vault.set(credentials.account(acc.login_name, acc.origin), acc.password)
-        except VaultError:
-            raise _Fail("vault") from None
-        self._settings.set(
-            {"server": acc.origin.url, "user": acc.login_name, "principal": acc.principal},
-            allow_connection=True,
-        )
-        self._on_connected(acc)
+    def _store(self, run: int, acc: Account) -> Done:
+        """Stores a verified account, unless the flow was cancelled or replaced meanwhile (a
+        logout during the test PROPFIND must stay a logout). Holds the lock throughout, so a
+        cancel waits for a store already under way and then undoes it."""
+        with self._lock:
+            if run != self._run:
+                raise _Fail("cancelled")
+            try:
+                self._vault.set(credentials.account(acc.login_name, acc.origin), acc.password)
+            except VaultError:
+                raise _Fail("vault") from None
+            try:
+                self._settings.set(
+                    {"server": acc.origin.url, "user": acc.login_name, "principal": acc.principal},
+                    allow_connection=True,
+                )
+            except (SettingsError, OSError):
+                log.exception("couldn't store the connection")
+                self._vault.delete(credentials.account(acc.login_name, acc.origin))
+                raise _Fail("internal") from None
+            self._on_connected(acc)
         log.info("connected to %s", acc.origin.host)
         return {"state": "done", "server": acc.origin.url, "user": acc.login_name}
 

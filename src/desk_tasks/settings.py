@@ -82,17 +82,27 @@ def _is_str_or_none(v: object, limit: int = 2000) -> bool:
     return v is None or (isinstance(v, str) and len(v) <= limit)
 
 
+#: Per-list flags (spec "Per-list local settings").
+LIST_FLAGS = frozenset({"shown", "notify"})
+
+
 def _is_lists(v: object) -> bool:
     return (
         isinstance(v, dict)
         and len(v) <= 1000
         and all(
             isinstance(k, str)
+            and len(k) <= 500
             and isinstance(f, dict)
-            and all(isinstance(n, str) and isinstance(b, bool) for n, b in f.items())
+            and set(f) <= LIST_FLAGS
+            and all(isinstance(b, bool) for b in f.values())
             for k, f in v.items()
         )
     )
+
+
+def _is_number(v: object) -> bool:
+    return isinstance(v, int | float) and not isinstance(v, bool)
 
 
 _CHECKS = {
@@ -110,19 +120,24 @@ _CHECKS = {
         v is None
         or (
             isinstance(v, dict)
-            and isinstance(v.get("reason"), str)
-            and isinstance(v.get("at"), int | float)
+            and set(v) == {"reason", "at"}
+            and isinstance(v["reason"], str)
+            and len(v["reason"]) <= 1000
+            and _is_number(v["at"])
         )
     ),
     "notifications": lambda v: isinstance(v, bool),
     "dueTimeToasts": lambda v: isinstance(v, bool),
     "missedSummary": lambda v: isinstance(v, bool),
-    "notificationsPausedUntil": lambda v: v is None or isinstance(v, int | float),
+    "notificationsPausedUntil": lambda v: v is None or _is_number(v),
     "lists": _is_lists,
     "defaultList": _is_str_or_none,
     "density": lambda v: v in ("comfortable", "compact"),
     "firstRunDone": lambda v: isinstance(v, bool),
 }
+
+#: settings.json never grows past this (a page in a loop can't fill the disk).
+MAX_BYTES = 256 * 1024
 
 #: Keys JS may not change through settings_set (the connection is set by the login flow).
 CONNECTION_KEYS = frozenset({"server", "user", "principal"})
@@ -177,7 +192,10 @@ class SettingsFile:
     def set(self, patch: object, *, allow_connection: bool = False) -> dict[str, Any]:
         clean = validate_patch(patch, allow_connection=allow_connection)
         with self._lock:
-            self._data.update(clean)
+            merged = {**self._data, **clean}
+            if len(json.dumps(merged)) > MAX_BYTES:
+                raise SettingsError("settings too large")
+            self._data = merged
             self._write()
             return {**DEFAULTS, **self._data}
 

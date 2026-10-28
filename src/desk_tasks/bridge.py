@@ -12,9 +12,11 @@ pywebview's own dispatcher).
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import threading
+import time
 import webbrowser
 from collections.abc import Callable
 from typing import Any, Literal, NotRequired, Protocol, TypedDict
@@ -24,7 +26,7 @@ from . import credentials
 from .credentials import Vault, VaultError
 from .dav import Connector, Dav, DavResult, Origin, Refused, fail, open_connection
 from .events import Events
-from .login import Account, Connection, State, revoke
+from .login import Account, Connection, State, failed, revoke
 from .settings import SettingsError, SettingsFile
 
 log = logging.getLogger(__name__)
@@ -177,6 +179,32 @@ def _bad(message: str = "That request isn't valid.") -> dict[str, Any]:
     return {"ok": False, "message": message}
 
 
+INTERNAL = "Something went wrong. The details are in the log."
+
+
+def _guarded(fallback: Callable[[], Any]) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """No exception leaves a bridge call: pywebview would hand its text and traceback to JS.
+    The call logs it and answers with `fallback()`."""
+
+    def wrap(f: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(f)
+        def call(*args: Any) -> Any:
+            try:
+                return f(*args)
+            except Exception:
+                log.exception("bridge call %s failed", getattr(f, "__name__", "?"))
+                return fallback()
+
+        return call
+
+    return wrap
+
+
+_not_ok = lambda: _bad(INTERNAL)  # noqa: E731
+#: JS log lines per minute; more are counted and dropped (a page in a loop can't flood the log).
+LOG_PER_MINUTE = 120
+
+
 class Api:
     """The bridge calls. Public names are exactly `CALLS`; everything else is private."""
 
@@ -199,8 +227,14 @@ class Api:
         self._dav: Dav | None = None
         self._quitting = False
         self._login = Connection(
-            settings, vault, self._connected, open_browser=open_browser, connector=connector
+            settings,
+            vault,
+            self._connected,
+            open_browser=open_browser,
+            connector=connector,
+            is_connected=lambda: self._dav is not None,
         )
+        self._log_window = (0.0, 0, 0)  # (minute start, lines, dropped)
         self._restore()
 
     # -- state ----------------------------------------------------------------------------
@@ -248,6 +282,7 @@ class Api:
 
     # -- calls ----------------------------------------------------------------------------
 
+    @_guarded(lambda: fail("network", INTERNAL))
     def dav(self, req: object) -> DavResult:
         with self._lock:
             client = self._dav
@@ -255,15 +290,19 @@ class Api:
             return fail("refused", "Not connected to Nextcloud.")
         return client.send(req)
 
+    @_guarded(lambda: failed("internal"))
     def connect_start(self, url: object) -> State:
         return self._login.start(url)
 
+    @_guarded(lambda: failed("internal"))
     def connect_poll(self) -> State:
         return self._login.poll()
 
+    @_guarded(lambda: failed("internal"))
     def connect_manual(self, url: object, user: object, app_password: object) -> State:
         return self._login.manual(url, user, app_password)
 
+    @_guarded(_not_ok)
     def disconnect(self) -> dict[str, Any]:
         """Logs out: revokes the app password on Nextcloud (best effort), deletes it locally."""
         self._login.cancel()
@@ -287,11 +326,13 @@ class Api:
         self._settings.clear_connection()
         return {"ok": True, "revoked": revoked}
 
+    @_guarded(lambda: None)
     def next_event(self, timeout_s: object) -> dict[str, Any] | None:
         if not isinstance(timeout_s, int | float) or isinstance(timeout_s, bool):
             return None
         return self._events.next(float(timeout_s))
 
+    @_guarded(_not_ok)
     def notify(self, toast: object) -> dict[str, Any]:
         try:
             t = check_toast(toast)
@@ -300,6 +341,7 @@ class Api:
         self._shell.notify(t)
         return {"ok": True}
 
+    @_guarded(_not_ok)
     def tray(self, status: object) -> dict[str, Any]:
         try:
             st = check_tray(status)
@@ -308,6 +350,7 @@ class Api:
         self._shell.tray(st)
         return {"ok": True}
 
+    @_guarded(_not_ok)
     def window(self, cmd: object) -> dict[str, Any]:
         try:
             c = check_window(cmd)
@@ -318,11 +361,13 @@ class Api:
             return {"ok": True}
         return {"ok": True, "value": self._shell.window(c)}
 
+    @_guarded(_not_ok)
     def settings_get(self) -> dict[str, Any]:
         with self._lock:
             connected = self._dav is not None
         return {**self._settings.get(), "connected": connected}
 
+    @_guarded(_not_ok)
     def settings_set(self, patch: object) -> dict[str, Any]:
         try:
             self._settings.set(patch)
@@ -330,6 +375,7 @@ class Api:
             return _bad(str(e))
         return {"ok": True, "settings": self.settings_get()}
 
+    @_guarded(_not_ok)
     def open_url(self, url: object) -> dict[str, Any]:
         try:
             link = check_link(url)
@@ -338,7 +384,20 @@ class Api:
         self._shell.open_url(link)
         return {"ok": True}
 
+    @_guarded(lambda: None)
     def log(self, level: object, msg: object) -> None:
+        now = time.monotonic()
+        start, lines, dropped = self._log_window
+        if now - start >= 60:
+            if dropped:
+                web_log.warning(
+                    "%d log lines from the page dropped (over %d a minute)", dropped, LOG_PER_MINUTE
+                )
+            start, lines, dropped = now, 0, 0
+        if lines >= LOG_PER_MINUTE:
+            self._log_window = (start, lines, dropped + 1)
+            return
+        self._log_window = (start, lines + 1, dropped)
         lvl = _LEVELS.get(level, logging.INFO) if isinstance(level, str) else logging.INFO
         text = msg if isinstance(msg, str) else repr(msg)
         web_log.log(lvl, "%s", text[:4000].replace("\r", " ").replace("\n", " | "))

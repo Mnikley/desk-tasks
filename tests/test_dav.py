@@ -73,7 +73,10 @@ def test_status_php_is_the_only_get_outside_the_dav_root() -> None:
     assert check_url(o, "https://cloud.example.com/nc/status.php") == "/nc/status.php"
     with pytest.raises(Refused):
         check_url(o, "https://cloud.example.com/nc/status.php", method="PUT")
-    assert check_url(o, "https://cloud.example.com/nc/remote.php/dav/x") == "/nc/remote.php/dav/x"
+    assert (
+        check_url(o, "https://cloud.example.com/nc/remote.php/dav/calendars/x")
+        == "/nc/remote.php/dav/calendars/x"
+    )
 
 
 def test_request_validation() -> None:
@@ -88,8 +91,9 @@ def test_request_validation() -> None:
         )
     with pytest.raises(Refused):  # Destination on another host
         prepare(o, req(f"{base}{TASK}", "MOVE", headers={"Destination": f"https://evil.com{TASK}"}))
-    p = prepare(o, req(f"{base}{TASK}", "MOVE", headers={"Destination": f"{base}{ROOT}x/b.ics"}))
-    assert p.headers["destination"] == f"{base}{ROOT}x/b.ics"
+    dest = f"{base}{ROOT}calendars/tester/home/b.ics"
+    p = prepare(o, req(f"{base}{TASK}", "MOVE", headers={"Destination": dest}))
+    assert p.headers["destination"] == dest
     # POST: only application/xml to a calendar collection.
     cal = f"{base}{ROOT}calendars/tester/work/"
     xml = {"Content-Type": "application/xml; charset=utf-8"}
@@ -174,6 +178,7 @@ def test_caps_by_kind_of_answer(fake: Fake, monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(d, "CAP_SMALL", 100)
     monkeypatch.setattr(d, "CAP_OBJECT", 1000)
     sizes = {"/a": (200, 900), "/b": (200, 1001), "/c": (404, 101), "/d": (207, 1001)}
+    cal = f"{ROOT}calendars/u"
 
     def route(h: BaseHTTPRequestHandler, s: Seen) -> None:
         status, n = sizes[s.path.rsplit("/", 1)[0][-2:]]
@@ -181,11 +186,11 @@ def test_caps_by_kind_of_answer(fake: Fake, monkeypatch: pytest.MonkeyPatch) -> 
 
     fake.route = route
     c = client(fake)
-    assert c.send(req(f"{fake.url}{ROOT}/a/x"))["ok"]
-    big = c.send(req(f"{fake.url}{ROOT}/b/x"))
+    assert c.send(req(f"{fake.url}{cal}/a/x"))["ok"]
+    big = c.send(req(f"{fake.url}{cal}/b/x"))
     assert big["ok"] is False and big["kind"] == "too-large" and big.get("status") == 200
-    assert c.send(req(f"{fake.url}{ROOT}/c/x"))["kind"] == "too-large"  # type: ignore[typeddict-item]
-    assert c.send(req(f"{fake.url}{ROOT}/d/x", "PROPFIND"))["ok"]  # 16 MB for multistatus
+    assert c.send(req(f"{fake.url}{cal}/c/x"))["kind"] == "too-large"  # type: ignore[typeddict-item]
+    assert c.send(req(f"{fake.url}{cal}/d/x", "PROPFIND"))["ok"]  # 16 MB for multistatus
 
 
 def test_cap_without_content_length(fake: Fake, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -276,3 +281,84 @@ def test_send_never_raises_on_garbage() -> None:
     for junk in (None, [], "GET", {"method": "GET"}, {"method": 1, "url": 2}):
         r = c.send(junk)
         assert r["ok"] is False and r["kind"] == "refused"
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("DELETE", "files/tester/"),
+        ("PROPFIND", "files/tester/"),
+        ("DELETE", "trashbin/tester/trash/"),
+        ("DELETE", "calendars/tester/"),
+        ("PROPPATCH", "calendars/tester/"),
+        ("DELETE", "calendars/"),
+        ("PUT", "principals/users/tester/"),
+        ("DELETE", ""),
+        ("GET", "addressbooks/users/tester/contacts/"),
+    ],
+)
+def test_only_calendars_and_lookups_under_the_dav_root(method: str, path: str) -> None:
+    """An app password reaches the whole account: Files, contacts and the calendar home
+    itself are out of reach."""
+    o = Origin.parse("https://cloud.example.com")
+    with pytest.raises(Refused):
+        check_url(o, f"https://cloud.example.com{ROOT}{path}", method=method)
+
+
+def test_what_the_core_needs_is_allowed() -> None:
+    o = Origin.parse("https://cloud.example.com")
+    for method, path in [
+        ("PROPFIND", ""),
+        ("REPORT", ""),
+        ("PROPFIND", "principals/users/tester/"),
+        ("PROPFIND", "calendars/tester/"),
+        ("REPORT", "calendars/tester/trashbin/objects/"),
+        ("MKCALENDAR", "calendars/tester/new-abc123/"),
+        ("DELETE", "calendars/tester/work/"),
+        ("PUT", "calendars/tester/work/a.ics"),
+        ("MOVE", "calendars/tester/trashbin/objects/x.ics"),
+    ]:
+        check_url(o, f"https://cloud.example.com{ROOT}{path}", method=method)
+
+
+def test_header_values_must_be_ascii() -> None:
+    o = Origin.parse("https://cloud.example.com")
+    with pytest.raises(Refused):
+        prepare(o, req(f"https://cloud.example.com{TASK}", "PUT", headers={"If-Match": '"€"'}))
+
+
+def test_origin_refuses_query_fragment_port_zero_and_odd_paths() -> None:
+    for bad in ("https://h.com/?q", "https://h.com/#f", "https://h.com:0", "https://h.com/näh"):
+        with pytest.raises(Refused):
+            Origin.parse(bad)
+
+
+def test_a_trickling_answer_still_times_out(fake: Fake) -> None:
+    """Every byte restarts a socket timeout; the deadline covers the whole request."""
+
+    def trickle(h: BaseHTTPRequestHandler, s: Seen) -> None:
+        h.wfile.write(b"HTTP/1.1 200 OK\r\n")
+        for _ in range(20):
+            h.wfile.write(b"X-Slow: 1\r\n")
+            h.wfile.flush()
+            time.sleep(0.1)
+
+    fake.route = trickle
+    t0 = time.monotonic()
+    r = client(fake, timeout=0.5).send(req(f"{fake.url}{TASK}"))
+    assert r["ok"] is False and r["kind"] == "timeout"
+    assert time.monotonic() - t0 < 1.5
+
+
+def test_a_full_pool_gives_up_without_sending(fake: Fake) -> None:
+    def slow(h: BaseHTTPRequestHandler, s: Seen) -> None:
+        time.sleep(1.0)
+        answer(h, 204)
+
+    fake.route = slow
+    c = client(fake, timeout=0.4)
+    for _ in range(d.POOL_SIZE):
+        assert c._pool._slots.acquire(timeout=0)  # every slot taken
+    r = c.send(req(f"{fake.url}{TASK}", "PUT", body="x"))
+    assert r["ok"] is False and r["kind"] == "connect"
+    assert fake.requests == []
