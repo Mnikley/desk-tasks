@@ -57,13 +57,21 @@ export function journaled<T>(
 export const partialSteps = (err: unknown): number[] =>
 	(err as { steps?: number[] }).steps ?? [];
 
+/** The undo entries a group made (what a redo takes back), newest first. */
+const undoneBy = (ctx: Ctx, group: number) =>
+	ctx.store
+		.journal()
+		.filter((e) => e.group === group && e.status === "ok" && e.undoOf !== null)
+		.map((e) => e.id);
+
 /**
- * Undoes the steps in order. Stops at the first failure and throws it with the steps still to
- * do attached as `left`, so "Try again" continues where it stopped.
+ * Undoes the steps in order and returns the steps that redo it (undoing the undo). Stops at the
+ * first failure and throws it with the steps still to do attached as `left`, so "Try again"
+ * continues where it stopped.
  */
-export async function undoSteps(ctx: Ctx, steps: number[]): Promise<void> {
+export async function undoSteps(ctx: Ctx, steps: number[]): Promise<number[]> {
 	const left = [...steps];
-	await journaled(ctx, async (g) => {
+	const { result } = await journaled(ctx, async (g) => {
 		try {
 			while (left[0] !== undefined) {
 				await undo(g, left[0]);
@@ -72,7 +80,9 @@ export async function undoSteps(ctx: Ctx, steps: number[]): Promise<void> {
 		} catch (err) {
 			throw Object.assign(err as Error, { left: [...left] });
 		}
+		return undoneBy(ctx, g.group as number);
 	});
+	return result;
 }
 
 export const leftSteps = (err: unknown): number[] =>

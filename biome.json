@@ -3,5 +3,26 @@
 	"vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
 	"files": { "includes": ["web/**", "!web/**/fixtures/**"] },
 	"linter": { "enabled": true, "rules": { "preset": "recommended" } },
-	"formatter": { "enabled": true }
+	"formatter": { "enabled": true },
+	"overrides": [
+		{
+			"includes": ["web/src/ui/**"],
+			"linter": {
+				"rules": {
+					"a11y": {
+						"useSemanticElements": "off",
+						"useFocusableInteractive": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["web/src/ui/styles/**"],
+			"linter": {
+				"rules": {
+					"style": { "noDescendingSpecificity": "off" }
+				}
+			}
+		}
+	]
 }

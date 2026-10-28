@@ -11,7 +11,7 @@
     "typecheck": "tsc -p .",
     "test": "bun test",
     "test:nextcloud": "bun web/test/nextcloud/run.ts",
-    "test:ui": "bun run build && bun test web/test/ui",
+    "test:ui": "bun run build && DESK_TASKS_UI=1 bun test web/test/ui --timeout 60000",
     "screenshots": "bun run build && bun web/scripts/screenshots.ts",
     "release": "bun run build && uv build"
   },

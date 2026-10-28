@@ -98,3 +98,22 @@ export function combine(...ps: Persister[]): Persister {
 		},
 	};
 }
+
+/** UI conveniences kept next to the mirror (folds, last view, fired reminders, snoozes). */
+export async function loadKv<T>(
+	db: IDBDatabase,
+	key: string,
+): Promise<T | undefined> {
+	const tx = db.transaction("kv", "readonly");
+	return req(tx.objectStore("kv").get(key) as IDBRequest<T | undefined>);
+}
+
+export async function saveKv(
+	db: IDBDatabase,
+	key: string,
+	value: unknown,
+): Promise<void> {
+	const tx = db.transaction("kv", "readwrite");
+	tx.objectStore("kv").put(value, key);
+	await done(tx);
+}

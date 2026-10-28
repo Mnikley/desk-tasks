@@ -264,9 +264,11 @@ export interface SyncOutcome {
 	/** Lists that failed, by href. */
 	failed: string[];
 	ok: boolean;
+	/** Why the whole run failed (nothing could be read), for the banner; null otherwise. */
+	error: { kind: "auth" | "unreachable" | "invalid"; message: string } | null;
 }
 
-const NOTHING: SyncOutcome = { gone: [], failed: [], ok: true };
+const NOTHING: SyncOutcome = { gone: [], failed: [], ok: true, error: null };
 
 /** Waits for a sync in flight, if any (writes that must not race a listing use it). */
 export const inflightSync = (ctx: Ctx) => runs.get(ctx.store)?.inflight ?? null;
@@ -347,7 +349,7 @@ async function runSync(ctx: Ctx): Promise<SyncOutcome> {
 				? { lastSync: ctx.now() }
 				: {}),
 		});
-		return { gone, failed, ok: failed.length === 0 };
+		return { gone, failed, ok: failed.length === 0, error: null };
 	} catch (err) {
 		const known =
 			err instanceof CaldavError || err instanceof CaldavUnreachable;
@@ -376,7 +378,15 @@ async function runSync(ctx: Ctx): Promise<SyncOutcome> {
 			});
 		}
 		if (err instanceof CoreError) throw err;
-		return { gone: [], failed, ok: false };
+		return {
+			gone: [],
+			failed,
+			ok: false,
+			error: {
+				kind: auth ? "auth" : known ? "unreachable" : "invalid",
+				message,
+			},
+		};
 	}
 }
 
