@@ -1,6 +1,7 @@
 {
   "name": "desk-tasks",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "bun web/scripts/build.ts",
