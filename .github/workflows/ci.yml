@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, types and tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install 3.13
+      - run: bun install --frozen-lockfile
+      - name: Biome, tsc, bun test, ruff, ty, pytest
+        run: bun run check
+      - name: Chromium for the UI tests
+        run: bunx playwright-core install --with-deps chromium
+      - name: UI tests (built bundle, stub bridge)
+        run: bun run test:ui
+
+  nextcloud:
+    name: Against a real Nextcloud (Docker)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install 3.13
+      - run: bun install --frozen-lockfile
+      - run: bun run test:nextcloud
+
+  windows:
+    name: Windows smoke (Python 3.15)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install 3.15
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: pytest (includes tests/test_windows.py)
+        run: uv run --python 3.15 pytest -q
+
+  wheel:
+    name: Wheel
+    needs: [checks, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install 3.13
+      - run: bun install --frozen-lockfile
+      - name: Build the bundle and the wheel, check its contents
+        run: bun run release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/*.whl
+
+  publish:
+    name: Publish the latest build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [wheel, nextcloud]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel
+          path: dist
+      - name: Replace the "latest-build" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release delete latest-build --yes --cleanup-tag || true
+          gh release create latest-build dist/*.whl \
+            --target "$GITHUB_SHA" \
+            --latest \
+            --title "Latest build" \
+            --notes "Built from ${GITHUB_SHA::7} on main. Install or update on Windows: see the README."
