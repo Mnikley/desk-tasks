@@ -1,4 +1,4 @@
-// The keyboard matching rules (spec "Keyboard map"), each with a test.
+// The keyboard matching rules, each with a test.
 import { describe, expect, test } from "bun:test";
 import { KEYMAP, keyLabel, matches, rowShortcuts } from "../src/ui/keymap.ts";
 

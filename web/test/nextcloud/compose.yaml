@@ -1,5 +1,5 @@
 # Throwaway Nextcloud for the desk-tasks tests. Never point this at real data.
-# Pinned to 35.0.2 (the user's version on 2026-10-28). `bun run test:nextcloud --image
+# Pinned to 35.0.2, the version desk-tasks is developed against. `bun run test:nextcloud --image
 # nextcloud:34.0.x-apache` runs the same suite against 34.
 name: desk-tasks-nextcloud-test
 services:

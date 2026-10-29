@@ -1,5 +1,5 @@
-"""Start with Windows: HKCU\\...\\Run `desk-tasks` = "<venv>\\Scripts\\pythonw.exe" -m desk_tasks
-(spec "Autostart"). Off by default; the first-run sheet and Settings turn it on."""
+"""Start with Windows: HKCU\\...\\Run `desk-tasks` = "<venv>\\Scripts\\pythonw.exe" -m desk_tasks.
+Off by default; the first-run sheet and Settings turn it on."""
 
 from __future__ import annotations
 

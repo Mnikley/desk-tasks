@@ -1,5 +1,5 @@
 // The status banners (writes paused, offline, unreachable, auth), toasts, the in-place
-// confirmation and the filter chips (spec "States and microcopy").
+// confirmation and the filter chips.
 import { useEffect, useLayoutEffect, useRef } from "preact/hooks";
 import { fmtClock, zoned } from "../../core/time.ts";
 import { filtering } from "../model.ts";

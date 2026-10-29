@@ -1,5 +1,5 @@
 // Settings, a sheet inside the widget: Account, Lists, Shortcuts, Notifications, Appearance,
-// Windows, About (spec "Settings").
+// Windows, About.
 import { useState } from "preact/hooks";
 import type { Hotkey, SettingsPatch } from "../../bridge.ts";
 import { attempt } from "../../core/ctx.ts";

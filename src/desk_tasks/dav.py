@@ -1,4 +1,4 @@
-"""dav(): the one door from the UI to Nextcloud (spec "Python bridge").
+"""dav(): the one door from the UI to Nextcloud.
 
 Every request is checked before a socket opens: an allowed method, the configured origin, a path
 under <base>/remote.php/dav/ (GET <base>/status.php is the one exception), the same for a

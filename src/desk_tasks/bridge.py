@@ -1,4 +1,4 @@
-"""The bridge: the calls the UI may make into Python (spec "Python bridge", the only trust
+"""The bridge: the calls the UI may make into Python (the only trust
 boundary). Every argument is validated here; results are plain JSON; failures are kinds with a
 safe message, never exception text.
 

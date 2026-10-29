@@ -1,7 +1,7 @@
-"""What the window may show and open, for the shell's WebView2 handlers (spec CSP, and the
-bridge review): pywebview injects window.pywebview, with every bridge call, into whatever page
-the window navigates to, and hands window.open / target=_blank URIs to the OS (ShellExecute)
-without the open_url check. The shell cancels both through these two decisions."""
+"""What the window may show and open, for the shell's WebView2 handlers (the CSP, and a
+bridge review finding): pywebview injects window.pywebview, with every bridge call, into
+whatever page the window navigates to, and hands window.open / target=_blank URIs to the OS
+(ShellExecute) without the open_url check. The shell cancels both through these two decisions."""
 
 from __future__ import annotations
 

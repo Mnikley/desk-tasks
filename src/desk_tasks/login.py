@@ -1,5 +1,5 @@
 """Connecting to Nextcloud: Login Flow v2 (primary) and a pasted app password (fallback), the
-test PROPFIND both end with, storing the result, and logging out (spec "Login Flow v2").
+test PROPFIND both end with, storing the result, and logging out.
 
 Python drives the poll loop (every second, for at most 20 minutes); connect_poll() only reports
 the state. The login and poll addresses Nextcloud hands out must be on the origin the user

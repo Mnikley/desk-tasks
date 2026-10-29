@@ -18,7 +18,7 @@ def hk(key: str, **mods: bool) -> dict[str, object]:
     return {"win": False, "ctrl": False, "alt": False, "shift": False, **mods, "key": key}
 
 
-def test_default_hotkeys_register_as_spec_says() -> None:
+def test_default_hotkeys_register() -> None:
     j = hotkeys.combo(hk("J", win=True, alt=True))
     assert j == hotkeys.Combo(hotkeys.MOD_WIN | hotkeys.MOD_ALT, ord("J"), "Win+Alt+J")
     n = hotkeys.combo(hk("n", win=True, alt=True))
@@ -26,7 +26,7 @@ def test_default_hotkeys_register_as_spec_says() -> None:
 
 
 def test_ctrl_alt_is_never_registered() -> None:
-    """Spec: never Ctrl+Alt combinations (AltGr on the user's German/Austrian layout)."""
+    """Never Ctrl+Alt combinations (AltGr on German and Austrian layouts)."""
     assert hotkeys.combo(hk("J", ctrl=True, alt=True)) is None
     assert hotkeys.combo(hk("J", win=True, ctrl=True, alt=True)) is None
     assert hotkeys.label(hk("J", ctrl=True, alt=True)) == "Ctrl+Alt+J"

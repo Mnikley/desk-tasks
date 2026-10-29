@@ -1,7 +1,7 @@
 // Moving and resizing the frameless window: the header's empty space drags it, the grip at
-// the bottom right resizes it (spec "Desktop integration"). Python moves the window with
+// the bottom right resizes it. Python moves the window with
 // SetWindowPos in physical pixels, so CSS pixels are scaled by devicePixelRatio here; one call
-// is in flight at a time and the movement in between is added up (as in the spike).
+// is in flight at a time and the movement in between is added up.
 import { useMemo, useRef } from "preact/hooks";
 import type { Controller } from "../controller.ts";
 

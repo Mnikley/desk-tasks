@@ -1,6 +1,6 @@
 // The header: view switcher ("Today ▾ 5"), stale warning, sync dot, quick-add and overflow
 // buttons. The switcher popover lists views, then lists, then "New list…" and "Trash", filtered
-// by typing (spec "Views and information architecture").
+// by typing.
 import {
 	useEffect,
 	useLayoutEffect,

@@ -646,7 +646,7 @@ describe.skipIf(!enabled)("the core (real Nextcloud)", () => {
 		const href = `${list}rec-${suffix}.ics`;
 		const text = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:x\r\nBEGIN:VTODO\r\nUID:rec-${suffix}\r\nDTSTAMP:20261020T000000Z\r\nSUMMARY:Water plants\r\nDUE;VALUE=DATE:20261021\r\nRRULE:FREQ=WEEKLY;COUNT=3\r\nEND:VTODO\r\nEND:VCALENDAR\r\n`;
 		await putObject(href, text);
-		// The spec's open question: does Nextcloud rewrite an RRULE without DTSTART? It must not.
+		// An open question settled: does Nextcloud rewrite an RRULE without DTSTART? It must not.
 		expect((await getObject(href))?.text).toBe(text);
 		await forced();
 		const t = tasks().find((x) => x.uid === `rec-${suffix}`);

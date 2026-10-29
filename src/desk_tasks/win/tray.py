@@ -1,6 +1,6 @@
 """The tray icon (pystray): Show, Quick add, Sync now, Pause notifications 1 h, Settings, Quit;
-tooltip "desk-tasks · 3 due today" and a dot when tasks are due (spec "Tray icon"). pystray
-re-adds the icon itself when Explorer restarts (TaskbarCreated; spike step 11)."""
+tooltip "desk-tasks · 3 due today" and a dot when tasks are due. pystray
+re-adds the icon itself when Explorer restarts (TaskbarCreated)."""
 
 from __future__ import annotations
 

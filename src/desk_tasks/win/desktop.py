@@ -1,5 +1,5 @@
-"""The desktop layer (spec "Desktop integration", the Rainmeter technique; research
-windows-desktop Q1), as proven in the spike.
+"""The desktop layer (the technique Rainmeter uses), as proven in the
+Windows spike.
 
 One service thread owns a hidden probe window, the global hotkeys, the foreground WinEvent hook
 and a 250 ms timer. Every z-order change of the widget goes through that thread: one writer for
@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 PROBE_CLASS = "DeskTasksProbe"
 PROBE_TITLE = "desk-tasks probe"
-#: Posted to the probe by a second start (spec "Single instance").
+#: Posted to the probe by a second start.
 SUMMON_MESSAGE = "desk-tasks-summon"
 
 Emit = Callable[[dict[str, Any]], None]

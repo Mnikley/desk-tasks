@@ -1,7 +1,7 @@
 // What a view shows, as groups of rows: pure, so the views are tested without a page.
 // Today: open tasks whose start or due is today or earlier (Nextcloud's rule), overdue folded on
 // top; Upcoming: the next 7 days, then by week; All: every shown list; a list: its tree in My
-// order with the completed folded at the bottom (spec "Views and information architecture").
+// order with the completed folded at the bottom.
 
 import { compareManual } from "../core/order.ts";
 import type { ListRecord } from "../core/store.ts";

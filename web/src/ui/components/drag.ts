@@ -1,4 +1,4 @@
-// Drag and drop with pointer events, not HTML5 DnD (spec "Drag and drop"): reorder within
+// Drag and drop with pointer events, not HTML5 DnD: reorder within
 // siblings with an insertion line, the horizontal offset decides the nesting level, a drop on
 // an Upcoming day header sets the due date, a drop on a list in the switcher (it opens when
 // the pointer rests on the header's switcher button) moves the task with its subtree.

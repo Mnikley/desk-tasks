@@ -1,5 +1,5 @@
 """Where the window goes at start: the saved rectangle if its monitor is still there, else the
-top right of the primary work area. Pure; physical pixels (spec "DPI")."""
+top right of the primary work area. Pure; physical pixels."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""dav(): what may be sent, and what comes back (spec "Python bridge", dav() rules)."""
+"""dav(): what may be sent, and what comes back (the dav() rules)."""
 
 from __future__ import annotations
 

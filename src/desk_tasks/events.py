@@ -1,4 +1,4 @@
-"""Shell → JS events: one queue, read by the UI's next_event long-poll (spec "Python bridge")."""
+"""Shell → JS events: one queue, read by the UI's next_event long-poll."""
 
 from __future__ import annotations
 

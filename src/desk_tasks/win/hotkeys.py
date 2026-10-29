@@ -1,4 +1,4 @@
-"""Hotkey settings → RegisterHotKey arguments (spec "Global hotkeys"). Pure."""
+"""Hotkey settings → RegisterHotKey arguments. Pure."""
 
 from __future__ import annotations
 

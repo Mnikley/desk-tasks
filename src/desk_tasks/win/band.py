@@ -1,4 +1,4 @@
-"""Which band the widget is in, and how it moves between them (spec "Desktop integration").
+"""Which band the widget is in, and how it moves between them.
 Pure; the service thread applies the result with SetWindowPos.
 
 - hidden: not shown yet.

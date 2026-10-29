@@ -1,6 +1,6 @@
 // One-key popovers for single fields (d due, D start, # tags, / list, r repeat, a reminder,
-// priority), each writing immediately and undoable, and the Ctrl+F filter (spec "Editing",
-// "Rescheduling"). They open next to the highlighted row and take the keys while open.
+// priority), each writing immediately and undoable, and the Ctrl+F filter. They open next to
+// the highlighted row and take the keys while open.
 import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { RepeatRule } from "../../core/recurrence.ts";

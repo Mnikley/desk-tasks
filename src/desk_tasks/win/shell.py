@@ -1,6 +1,6 @@
 """The Windows shell: the frameless pywebview window on the desktop layer, loading the bundle
 through a WebView2 virtual host (stable origin, so IndexedDB survives), and the bridge's shell
-calls (spec "Desktop integration", "Python bridge"). Built from the spike."""
+calls."""
 
 from __future__ import annotations
 

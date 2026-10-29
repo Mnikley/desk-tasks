@@ -1,5 +1,5 @@
 // "Changed on another device": the change wasn't saved; both versions side by side
-// (spec "States and microcopy", Conflict 412).
+// (an answer 412 from Nextcloud).
 import type { TaskSide } from "../../core/tasks.ts";
 import { PRIORITY_LABEL, STATUS_LABEL } from "../../logic/tasklogic.ts";
 import { useStore } from "../store.ts";

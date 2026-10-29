@@ -37,7 +37,7 @@ const complete = (text: string, now?: number) =>
 const fields = (text: string) => TaskDocument.parse(text).fields();
 
 describe("completing a repeating task advances it in place", () => {
-	test("weekly BYDAY with COUNT, TZID: the research doc's example", () => {
+	test("weekly BYDAY with COUNT, TZID", () => {
 		const before = doc([
 			"DTSTART;TZID=Europe/Berlin:20261102T090000",
 			"DUE;TZID=Europe/Berlin:20261102T170000",

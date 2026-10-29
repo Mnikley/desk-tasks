@@ -1,6 +1,6 @@
 // The view's groups and rows, as a treegrid (aria-level, -expanded, -selected), with a roving
 // tabindex on the highlighted row. Rows: checkbox (32 px hit area), title, meta line, priority
-// bars, pin (spec "Rows").
+// bars, pin.
 import type { JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { ListRecord } from "../../core/store.ts";
@@ -225,7 +225,7 @@ function withNewRow(g: Group, at: NewRowAt | null): (Row | "new")[] {
 }
 
 /** The inline new row: Enter saves and opens the next sibling row, Enter on an empty row
- * closes it, Esc discards it, Tab / Shift+Tab nest and un-nest it (spec "Editing"). */
+ * closes it, Esc discards it, Tab / Shift+Tab nest and un-nest it. */
 function NewRow() {
 	const app = useApp();
 	const at = useStore(app.newRowAt);

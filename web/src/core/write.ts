@@ -886,7 +886,7 @@ async function moveOne(
 	/** Where to put it; by default a fresh file name. */
 	to?: string,
 ): Promise<string> {
-	// A fresh file name: Nextcloud may report a re-used href as deleted (see the research doc);
+	// A fresh file name: Nextcloud may report a re-used href as deleted;
 	// the sync confirms every reported deletion, so an undo can still use the old name.
 	const dest =
 		to ?? `${target.href.replace(/\/*$/, "/")}${crypto.randomUUID()}.ics`;

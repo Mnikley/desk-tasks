@@ -1,7 +1,6 @@
 // Quick add (bottom of every view; `n`, Win+Alt+N): timesheet's grammar with live token
 // highlighting, view defaults as removable chips, autocomplete for #, / and !, inline errors
-// (never a toast), Esc on a token makes it literal, several pasted lines ask first
-// (spec "Quick add").
+// (never a toast), Esc on a token makes it literal, several pasted lines ask first.
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { RepeatRule } from "../../core/recurrence.ts";
 import type { CreateInput } from "../../core/write.ts";
@@ -255,7 +254,7 @@ export function QuickAdd(props: {
 						}}
 						onKeyUp={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
 						onClick={(e) => {
-							// A click on a highlighted token makes it literal text (spec).
+							// A click on a highlighted token makes it literal text.
 							const at = e.currentTarget.selectionStart ?? 0;
 							const tok = parse.tokens.find((t) => at > t.from && at < t.to);
 							if (tok && e.detail === 1) setLine(literalize(line, tok));

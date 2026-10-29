@@ -727,7 +727,7 @@ export class TaskDocument {
 		this.set("CATEGORIES", tags.map(escapeText).join(","));
 	}
 
-	/** TaskStatus with the companion properties tasks.org and Planify read (see the research doc). */
+	/** TaskStatus with the companion properties tasks.org and Planify read. */
 	setStatus(status: TaskStatus, now: number): void {
 		const f = this.fields();
 		if (f.status === status) return;

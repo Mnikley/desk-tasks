@@ -1,6 +1,6 @@
 // The colour tokens, both themes: the one source the build turns into CSS custom properties
 // (tokens.css) and the contrast test checks pair by pair (WCAG 2.2 AA: text 4.5:1, rings,
-// focus and other UI parts 3:1). OKLCH, as the spec writes the surfaces.
+// focus and other UI parts 3:1). OKLCH throughout.
 
 export type Theme = "light" | "dark";
 

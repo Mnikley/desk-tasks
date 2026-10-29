@@ -1,4 +1,4 @@
-// The reminder loop (spec "Reminders"): on every 30 s tick from Python, and after syncs and
+// The reminder loop: on every 30 s tick from Python, and after syncs and
 // writes, compute the next 48 h of triggers and fire what is due as toasts; triggers missed
 // while the PC was off or asleep (≤ 12 h) become one summary. Fired keys and snoozes are kept
 // in IndexedDB (href + UID + instant: each fires once). The tray shows "n due today".

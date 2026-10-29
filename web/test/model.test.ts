@@ -292,7 +292,7 @@ describe("filters and lists", () => {
 describe("due chips", () => {
 	const chip = (t: TaskView, inToday = false) =>
 		dueChip(t, TODAY, 630, { inToday });
-	test("each state as the spec draws it", () => {
+	test("each state draws as designed", () => {
 		expect(chip(task({ summary: "", due: due("2026-10-26") }))).toMatchObject({
 			text: "Mon · 2 d",
 			tone: "muted",

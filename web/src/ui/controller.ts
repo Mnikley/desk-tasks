@@ -1,6 +1,6 @@
 // The app's state and the actions on it: what the components read (stores) and call (methods).
 // Every user action that writes goes through `act`, which runs it as one undo group, offers
-// Undo, and turns a failure into the state the spec asks for (conflict dialog, paused banner,
+// Undo, and turns each kind of failure into its state (conflict dialog, paused banner,
 // "Couldn't save · Retry" toast). The sync cadence and the shell's events live here too.
 import type { Bridge, Settings, SettingsPatch, ShellEvent } from "../bridge.ts";
 import {
@@ -58,7 +58,7 @@ import { createStore } from "./store.ts";
 
 /** How long a ticked task lingers (dimmed, struck through) before it is written and goes. */
 export const LINGER_MS = 1500;
-/** Sync cadence (spec "Sync cadence"). */
+/** Sync cadence. */
 export const SYNC_ACTIVE_MS = 60_000;
 export const SYNC_REST_MS = 5 * 60_000;
 export const ACTIVE_WINDOW_MS = 10 * 60_000;

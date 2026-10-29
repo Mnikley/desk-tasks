@@ -19,7 +19,7 @@ import type { TaskPriority, TaskStatus } from "./types.ts";
 
 /** Seconds between 1970-01-01 and 2001-01-01, the epoch of X-APPLE-SORT-ORDER defaults. */
 export const APPLE_EPOCH_S = 978_307_200;
-/** Planify stores sections as bare VTODOs with this title prefix (see the research doc). */
+/** Planify stores sections as bare VTODOs with this title prefix. */
 export const PLANIFY_SECTION = "List : ";
 
 export interface Parsed {
@@ -114,7 +114,7 @@ export function parsed(
 	return p;
 }
 
-/** Planify stores sections as bare VTODOs named "List : …" (see the research doc). */
+/** Planify stores sections as bare VTODOs named "List : …". */
 export function isSection(f: TaskFields): boolean {
 	return (
 		f.summary.startsWith(PLANIFY_SECTION) &&

@@ -1,5 +1,5 @@
 """The durable settings: settings.json, no secrets. Everything that must survive a lost WebView
-profile lives here (spec "What persists where"); the core reads and writes it through
+profile lives here; the core reads and writes it through
 settings_get / settings_set. Writes are atomic (temp file + replace)."""
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ def _is_str_or_none(v: object, limit: int = 2000) -> bool:
     return v is None or (isinstance(v, str) and len(v) <= limit)
 
 
-#: Per-list flags (spec "Per-list local settings").
+#: Per-list flags.
 LIST_FLAGS = frozenset({"shown", "notify"})
 
 
