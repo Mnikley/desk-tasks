@@ -34,6 +34,8 @@ from .dav import (
 )
 from .settings import SettingsError, SettingsFile
 
+#: What the UI shows for an unexpected failure (the traceback goes to the log only).
+INTERNAL = "Something went wrong. The details are in the log (%LOCALAPPDATA%\\desk-tasks\\logs)."
 log = logging.getLogger(__name__)
 
 EXPIRY_S = 20 * 60
@@ -64,7 +66,7 @@ MESSAGES: dict[Reason, str] = {
     "vault": "Windows Credential Manager didn't store the password.",
     "cancelled": "Login cancelled.",
     "connected": "You're connected. Log out first to connect another Nextcloud.",
-    "internal": "Something went wrong. The details are in the log.",
+    "internal": INTERNAL,
 }
 
 

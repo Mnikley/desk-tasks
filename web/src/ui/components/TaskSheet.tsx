@@ -58,6 +58,8 @@ export function TaskSheet(props: {
 }) {
 	const app = useApp();
 	useStore(app.revision);
+	// Offline or paused makes the fields read-only too, with the reason.
+	useStore(app.syncState);
 	const t = app.task(props.id);
 	const restored = app.restoreSlot.get();
 	const [base, setBase] = useState<Draft | null>(t ? draftOf(t) : null);
@@ -115,7 +117,7 @@ export function TaskSheet(props: {
 			</SheetFrame>
 		);
 	}
-	const readOnly = t.readOnly;
+	const readOnly = app.blockOf(t);
 	const change = changeOf(base, draft);
 	const dirty = Object.keys(change).length > 0;
 	latest.current = { dirty, summary: t.summary, base, draft };
@@ -201,7 +203,7 @@ export function TaskSheet(props: {
 				: null;
 	return (
 		<SheetFrame
-			title={readOnly ? "Task (view only)" : "Task"}
+			title={t.readOnly ? "Task (view only)" : "Task"}
 			onClose={leave}
 			onKeyDown={(e) => {
 				if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -456,7 +458,7 @@ function StatusChip(props: { task: TaskView }) {
 		<button
 			type="button"
 			class="chip"
-			disabled={!!t.readOnly || next === null}
+			disabled={!!app.blockOf(t) || next === null}
 			title={
 				next === null
 					? undefined
@@ -501,7 +503,7 @@ function Subtasks(props: { task: TaskView; kids: TaskView[] }) {
 						style="height: 30px"
 						aria-checked={k.status === "COMPLETED"}
 						aria-label={`Complete: ${k.summary}`}
-						disabled={!!k.readOnly}
+						disabled={!!app.blockOf(k)}
 						onClick={() => app.toggleDone(k.id)}
 					>
 						<span class="ring">
@@ -516,7 +518,7 @@ function Subtasks(props: { task: TaskView; kids: TaskView[] }) {
 						aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+ArrowRight Alt+ArrowLeft"
 						onClick={() => app.sheet.set({ kind: "task", id: k.id })}
 						onKeyDown={(e) => {
-							if (!e.altKey || k.readOnly) return;
+							if (!e.altKey || app.blockOf(k)) return;
 							if (e.key === "ArrowUp" || e.key === "ArrowDown") {
 								e.preventDefault();
 								app.moveBy(k, e.key === "ArrowUp" ? -1 : 1, true);
@@ -539,7 +541,7 @@ function Subtasks(props: { task: TaskView; kids: TaskView[] }) {
 					</button>
 				</div>
 			))}
-			{!t.readOnly && (
+			{!app.blockOf(t) && (
 				<input
 					class="input"
 					placeholder="Add a subtask"

@@ -33,7 +33,8 @@ export function FirstRun(props: { bridge: Bridge; onConnected: () => void }) {
 			(): LoginState => ({
 				state: "failed",
 				reason: "internal",
-				message: "Something went wrong. The details are in the log.",
+				message:
+					"Something went wrong. The details are in the log (%LOCALAPPDATA%\\desk-tasks\\logs).",
 			}),
 		);
 		setBusy(false);
@@ -46,7 +47,8 @@ export function FirstRun(props: { bridge: Bridge; onConnected: () => void }) {
 			(): LoginState => ({
 				state: "failed",
 				reason: "internal",
-				message: "Something went wrong. The details are in the log.",
+				message:
+					"Something went wrong. The details are in the log (%LOCALAPPDATA%\\desk-tasks\\logs).",
 			}),
 		);
 		setBusy(false);

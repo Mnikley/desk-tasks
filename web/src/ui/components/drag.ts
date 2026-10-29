@@ -87,7 +87,7 @@ export function useDrag(
 			if (!start) return false;
 			const t = app.task(start.id);
 			if (!t) return false;
-			if (t.readOnly) {
+			if (app.blockOf(t)) {
 				start = null;
 				return false;
 			}

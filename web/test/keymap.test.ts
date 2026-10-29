@@ -1,6 +1,6 @@
 // The keyboard matching rules (spec "Keyboard map"), each with a test.
 import { describe, expect, test } from "bun:test";
-import { KEYMAP, keyLabel, matches } from "../src/ui/keymap.ts";
+import { KEYMAP, keyLabel, matches, rowShortcuts } from "../src/ui/keymap.ts";
 
 function ev(
 	key: string,
@@ -64,5 +64,28 @@ describe("keymap matching", () => {
 		expect(keyLabel("N")).toBe("Shift+N");
 		expect(keyLabel(" ")).toBe("Space");
 		expect(keyLabel("+")).toBe("+");
+	});
+
+	test("rows announce their shortcuts; with single keys off only the modified ones", () => {
+		const on = rowShortcuts(true).split(" ");
+		expect(on).toEqual(
+			expect.arrayContaining([
+				"Space",
+				"E",
+				"Enter",
+				"F2",
+				"Shift+D",
+				"1",
+				"Delete",
+				"Alt+ArrowRight",
+			]),
+		);
+		const off = rowShortcuts(false).split(" ");
+		expect(off).toEqual(
+			expect.arrayContaining(["Enter", "F2", "Delete", "Alt+ArrowUp"]),
+		);
+		expect(off).not.toContain("E");
+		expect(off).not.toContain("Shift+D");
+		expect(off).not.toContain("Space");
 	});
 });

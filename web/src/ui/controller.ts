@@ -120,7 +120,15 @@ export interface Conflict {
 
 interface UndoEntry {
 	label: string;
+	/** Journal steps of task writes. */
 	steps: number[];
+	/** List actions aren't journaled task writes: they carry their own way back and forth. */
+	inverse?: ListInverse;
+}
+
+export interface ListInverse {
+	undo: () => Promise<unknown>;
+	redo: () => Promise<unknown>;
 }
 
 export interface UiPrefs {
@@ -326,6 +334,12 @@ export class Controller {
 	}
 
 	/** Writes are off (read-only switch, paused, or no connection): the reason, else null. */
+	/** Why `t` can't be changed now: its own lock (view-only list, recurring…) or saving
+	 * being off (read-only switch, paused, offline). Null when it can. */
+	blockOf(t: TaskView): string | null {
+		return t.readOnly ?? this.writeBlock();
+	}
+
 	writeBlock(): string | null {
 		const s = this.ctx.store.settings;
 		if (s.readOnly) return "The read-only switch is on (Settings).";
@@ -479,7 +493,32 @@ export class Controller {
 		return undefined;
 	}
 
-	/** Shows a failure the way the spec asks for its kind. */
+	/**
+	 * A list action (create, rename, colour, delete, restore): runs it, then makes it one undo
+	 * step with its own way back. The toast offers Undo; a failure is returned for the caller
+	 * to show where it fits (the list sheet shows it inline).
+	 */
+	async listAct(
+		label: string,
+		run: () => Promise<unknown>,
+		inverse: ListInverse,
+	): Promise<Failure | null> {
+		const block = this.writeBlock();
+		if (block) return { kind: "paused", message: block };
+		this.touch();
+		const r = await attempt(run);
+		this.settleSoon();
+		if (!r.ok) return r.error;
+		this.undoStack.push({ label, steps: [], inverse });
+		this.redoEntry = null;
+		this.toast(label, {
+			actions: [{ label: "Undo", run: () => void this.undo() }],
+			ms: UNDO_TOAST_MS,
+		});
+		return null;
+	}
+
+	/** Shows a failure the way its kind needs (conflict dialog, paused, retry or discard). */
 	failed(
 		e: Failure,
 		opts: { subject?: string; retry?: () => void } = {},
@@ -547,6 +586,21 @@ export class Controller {
 			return;
 		}
 		this.touch();
+		if (top.inverse) {
+			const inv = top.inverse;
+			const r = await attempt(inv.undo);
+			this.settleSoon();
+			if (!r.ok) {
+				this.undoStack.push(top);
+				this.toast(`Couldn't undo: ${r.error.message}`, { tone: "error" });
+				return;
+			}
+			this.redoEntry = top;
+			this.toast(`Undid ${lower(top.label)}.`, {
+				actions: [{ label: "Redo", run: () => void this.redo() }],
+			});
+			return;
+		}
 		const r = await attempt(() => undoSteps(this.ctx, top.steps));
 		this.settleSoon();
 		if (r.ok) {
@@ -570,7 +624,7 @@ export class Controller {
 
 	async redo(): Promise<void> {
 		const e = this.redoEntry;
-		if (!e?.steps.length) {
+		if (!e || (!e.steps.length && !e.inverse)) {
 			this.toast("Nothing to redo.");
 			return;
 		}
@@ -580,6 +634,15 @@ export class Controller {
 			return;
 		}
 		this.redoEntry = null;
+		if (e.inverse) {
+			const r = await attempt(e.inverse.redo);
+			this.settleSoon();
+			if (r.ok) {
+				this.undoStack.push(e);
+				this.toast(`Redid ${lower(e.label)}.`);
+			} else this.toast(`Couldn't redo: ${r.error.message}`, { tone: "error" });
+			return;
+		}
 		const r = await attempt(() => undoSteps(this.ctx, e.steps));
 		this.settleSoon();
 		if (r.ok) {

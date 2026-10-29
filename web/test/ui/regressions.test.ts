@@ -68,17 +68,38 @@ describe.skipIf(!UI)("UI review regressions", () => {
 		}
 	});
 
-	test("Save in the sheet while saving is blocked keeps the sheet and the edit", async () => {
-		const o = await openApp({ stub: { settings: { readOnly: true } } });
+	test("going offline while editing keeps the sheet and the edit (read-only) until it can save", async () => {
+		let offline = false;
+		const o = await openApp({
+			stub: {
+				dav: async (req, send) =>
+					offline
+						? { ok: false, kind: "connect", message: "Couldn't connect." }
+						: send(req),
+			},
+		});
 		try {
+			const href = `${o.lists.work}call.ics`;
 			await row(o, "Call Bob").click();
 			await o.page.keyboard.press("Enter");
 			const title = o.page.locator("textarea[aria-label='Title']");
 			await title.fill("Call Bob about the hall");
-			await o.page.keyboard.press("Control+Enter");
-			await o.page.locator(".toast", { hasText: "read-only" }).waitFor();
+			offline = true;
+			await o.page.context().setOffline(true);
+			o.stub.push({ type: "sync-now" });
+			await o.page.locator(".sheet", { hasText: "Offline" }).waitFor();
 			expect(await title.inputValue()).toBe("Call Bob about the hall");
+			expect(await title.getAttribute("readonly")).not.toBeNull();
 			expect(await o.page.locator(".sheet[aria-label='Task']").count()).toBe(1);
+			offline = false;
+			await o.page.context().setOffline(false);
+			o.stub.push({ type: "sync-now" });
+			await until(async () => (await title.getAttribute("readonly")) === null);
+			await title.focus();
+			await o.page.keyboard.press("Control+Enter");
+			await until(() =>
+				server(o, href).includes("SUMMARY:Call Bob about the hall"),
+			);
 		} finally {
 			await o.close();
 		}

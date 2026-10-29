@@ -374,6 +374,30 @@ export function keyLabel(key: string): string {
 	return key.length === 1 ? key.toUpperCase() : key;
 }
 
+/** The keys that act on a task row, in `aria-keyshortcuts` form ("Space", "Shift+D",
+ * "Control+A"); without single-key shortcuts only the ones with Ctrl, Alt or F-keys. */
+export function rowShortcuts(singles: boolean): string {
+	const cached = rowShortcutCache.get(singles);
+	if (cached !== undefined) return cached;
+	const aria = (k: string): string => {
+		if (k === " ") return "Space";
+		if (/^[A-Z]$/.test(k)) return `Shift+${k}`;
+		if (k.length === 1) return k.toUpperCase();
+		const plus = k.lastIndexOf("+", k.length - 2);
+		if (plus > 0)
+			return `${k.slice(0, plus).replace("Ctrl", "Control")}+${aria(k.slice(plus + 1))}`;
+		return k;
+	};
+	const keys = KEYMAP.filter((b) => b.when === hasTask || b.when === hasTargets)
+		.flatMap((b) => b.keys)
+		.filter((k) => singles || !isSingleKey(k))
+		.map(aria);
+	const out = [...new Set(keys)].join(" ");
+	rowShortcutCache.set(singles, out);
+	return out;
+}
+const rowShortcutCache = new Map<boolean, string>();
+
 /** Whether `e` presses `key` (see the matching rules at the top). */
 export function matches(key: string, e: KeyboardEvent): boolean {
 	const altGr = e.getModifierState?.("AltGraph") ?? false;

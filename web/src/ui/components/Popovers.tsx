@@ -108,7 +108,9 @@ export function FieldPopover(props: {
 	const t = app.task(props.id);
 	if (!t) return null;
 	const tasks = props.bulk ? app.targets() : [t];
-	const ro = tasks.every((x) => x.readOnly) ? tasks[0]?.readOnly : null;
+	const ro =
+		app.writeBlock() ??
+		(tasks.every((x) => x.readOnly) ? tasks[0]?.readOnly : null);
 	if (ro)
 		return (
 			<Pop id={props.id} label="Can't be changed" onClose={props.onClose}>

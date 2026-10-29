@@ -1,6 +1,6 @@
 // A list's settings sheet: rename (per user on a list shared with me), colour, notify and
 // "show in Today", sharing (owner), delete (owner) or leave (shared with me); and the
-// "New list" sheet (spec "Lists", "Sharing").
+// "New list" sheet. Creating, renaming, recolouring and deleting are undo steps.
 import { useEffect, useState } from "preact/hooks";
 import type { Sharee } from "../../core/caldav.ts";
 import { attempt } from "../../core/ctx.ts";
@@ -79,17 +79,25 @@ export function NewListSheet(props: { onClose: () => void }) {
 			return;
 		}
 		setBusy(true);
-		const r = await attempt(() =>
-			createList(app.ctx, { name: name.trim(), color }),
+		let href = "";
+		const failure = await app.listAct(
+			`Created “${name.trim()}”.`,
+			async () => {
+				href = await createList(app.ctx, { name: name.trim(), color });
+			},
+			// Undo moves the new list to the trash; Redo brings it back.
+			{
+				undo: () => deleteList(app.ctx, href),
+				redo: () => restoreList(app.ctx, href),
+			},
 		);
 		setBusy(false);
-		if (!r.ok) {
-			setError(r.error.message);
+		if (failure) {
+			setError(failure.message);
 			return;
 		}
 		props.onClose();
-		app.toast(`Created “${name.trim()}”.`);
-		app.setView({ kind: "list", href: r.value });
+		app.setView({ kind: "list", href });
 	};
 	return (
 		<SheetFrame
@@ -170,17 +178,34 @@ export function ListSheet(props: { href: string; onClose: () => void }) {
 		});
 	const rename = async () => {
 		const n = name.trim();
-		if (!n || n === l.name) return;
-		const r = await attempt(() => changeList(app.ctx, l.href, { name: n }));
-		if (!r.ok) setError(r.error.message);
-		else
-			app.toast(
-				l.shared ? `Renamed to “${n}” (only for you)` : `Renamed to “${n}”`,
-			);
+		const old = l.name;
+		if (!n || n === old) return;
+		const to = (name: string) => () => changeList(app.ctx, l.href, { name });
+		const failure = await app.listAct(
+			l.shared ? `Renamed to “${n}” (only for you)` : `Renamed to “${n}”`,
+			to(n),
+			{ undo: to(old), redo: to(n) },
+		);
+		setError(failure?.message ?? null);
 	};
 	const recolor = async (color: string) => {
-		const r = await attempt(() => changeList(app.ctx, l.href, { color }));
-		if (!r.ok) setError(r.error.message);
+		// Nextcloud may store #RRGGBBAA; the undo goes back to the #RRGGBB part.
+		const old =
+			/^#[0-9a-f]{6}/i.exec(l.color ?? "")?.[0]?.toLowerCase() ?? null;
+		if (color === old) return;
+		const to = (color: string) => () => changeList(app.ctx, l.href, { color });
+		if (old === null) {
+			// No colour before: there is nothing to go back to.
+			const r = await attempt(to(color));
+			setError(r.ok ? null : r.error.message);
+			return;
+		}
+		const failure = await app.listAct(
+			`Changed the colour of “${l.name}”`,
+			to(color),
+			{ undo: to(old), redo: to(color) },
+		);
+		setError(failure?.message ?? null);
 	};
 	const count = app.tasks().filter((t) => t.list === l.href).length;
 	const owner = ownerOf(l);
@@ -212,22 +237,17 @@ export function ListSheet(props: { href: string; onClose: () => void }) {
 			))
 		)
 			return;
-		const r = await attempt(() => deleteList(app.ctx, l.href));
-		if (!r.ok) return setError(r.error.message);
+		const href = l.href;
+		const failure = await app.listAct(
+			`Deleted “${l.name}”.`,
+			() => deleteList(app.ctx, href),
+			{
+				undo: () => restoreList(app.ctx, href),
+				redo: () => deleteList(app.ctx, href),
+			},
+		);
+		if (failure) return setError(failure.message);
 		props.onClose();
-		app.toast(`Deleted “${l.name}”.`, {
-			ms: 6000,
-			actions: [
-				{
-					label: "Undo",
-					run: async () => {
-						const back = await attempt(() => restoreList(app.ctx, l.href));
-						if (!back.ok) app.failed(back.error);
-						else app.toast(`Restored “${l.name}”.`);
-					},
-				},
-			],
-		});
 	};
 	return (
 		<SheetFrame title={`${l.name} · list`} onClose={props.onClose}>

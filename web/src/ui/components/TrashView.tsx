@@ -1,10 +1,11 @@
 // The trash: deleted lists and tasks, each with Restore and Delete forever (confirmed); the
-// header says how long Nextcloud keeps them (spec "Lists", Trash).
+// header says how long Nextcloud keeps them. Restoring a list is one undo step.
 import { useEffect, useState } from "preact/hooks";
 import { attempt } from "../../core/ctx.ts";
 import type { Failure } from "../../core/errors.ts";
 import {
 	deleteForever,
+	deleteList,
 	deleteListForever,
 	loadTrash,
 	restoreList,
@@ -31,6 +32,26 @@ export function TrashView() {
 	useEffect(() => {
 		void load();
 	}, []);
+	const restore = async (href: string, name: string) => {
+		setBusy(href);
+		const failure = await app.listAct(
+			`Restored “${name}”.`,
+			() => restoreList(app.ctx, href),
+			{
+				undo: async () => {
+					await deleteList(app.ctx, href);
+					await load();
+				},
+				redo: async () => {
+					await restoreList(app.ctx, href);
+					await load();
+				},
+			},
+		);
+		setBusy(null);
+		if (failure) app.failed(failure);
+		await load();
+	};
 	const run = async (key: string, f: () => Promise<unknown>, done: string) => {
 		setBusy(key);
 		const r = await attempt(f);
@@ -97,13 +118,7 @@ export function TrashView() {
 						type="button"
 						class="text-btn"
 						disabled={busy !== null}
-						onClick={() =>
-							void run(
-								l.href,
-								() => restoreList(app.ctx, l.href),
-								`Restored “${l.name}”.`,
-							)
-						}
+						onClick={() => void restore(l.href, l.name)}
 					>
 						Restore
 					</button>

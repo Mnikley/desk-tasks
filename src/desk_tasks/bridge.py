@@ -26,7 +26,7 @@ from . import credentials
 from .credentials import Vault, VaultError
 from .dav import Connector, Dav, DavResult, Origin, Refused, fail, open_connection
 from .events import Events
-from .login import Account, Connection, State, failed, revoke
+from .login import INTERNAL, Account, Connection, State, failed, revoke
 from .settings import SettingsError, SettingsFile
 
 log = logging.getLogger(__name__)
@@ -179,9 +179,6 @@ _LEVELS = {
 
 def _bad(message: str = "That request isn't valid.") -> dict[str, Any]:
     return {"ok": False, "message": message}
-
-
-INTERNAL = "Something went wrong. The details are in the log."
 
 
 def _guarded(fallback: Callable[[], Any]) -> Callable[[Callable[..., Any]], Callable[..., Any]]:

@@ -2,6 +2,7 @@
 // an action is still being written, linger flushes that overlap.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Bridge, type PyApi } from "../src/bridge.ts";
+import { changeList } from "../src/core/lists.ts";
 import { sync } from "../src/core/sync.ts";
 import { Controller } from "../src/ui/controller.ts";
 import { FakeCaldav, HOME, vtodo } from "./fake-caldav.ts";
@@ -116,5 +117,24 @@ describe("controller", () => {
 		expect(r.app.lingering.get().has(r.byName("b").id)).toBe(true);
 		await r.app.flushLinger();
 		expect(fake.get(`${HOME}work/b.ics`)).toContain("STATUS:COMPLETED");
+	});
+
+	test("renaming a list is one undo step: z renames it back, Redo again", async () => {
+		const { app } = await rig();
+		const href = `${HOME}work/`;
+		const to = (name: string) => () => changeList(app.ctx, href, { name });
+		expect(
+			await app.listAct("Renamed to “Job”", to("Job"), {
+				undo: to("Work"),
+				redo: to("Job"),
+			}),
+		).toBeNull();
+		expect(fake.collections.get(href)?.name).toBe("Job");
+		await app.undo();
+		expect(fake.collections.get(href)?.name).toBe("Work");
+		await app.redo();
+		expect(fake.collections.get(href)?.name).toBe("Job");
+		await app.undo();
+		expect(app.ctx.store.list(href)?.name).toBe("Work");
 	});
 });

@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { ListRecord } from "../../core/store.ts";
 import { PRIORITY_LABEL } from "../../logic/tasklogic.ts";
 import { type NewRowAt, plural } from "../controller.ts";
+import { rowShortcuts } from "../keymap.ts";
 import {
 	dueChip,
 	type Group,
@@ -389,6 +390,7 @@ function TaskRow(props: {
 				props.row.expanded === null ? undefined : props.row.expanded
 			}
 			aria-selected={props.selected}
+			aria-keyshortcuts={rowShortcuts(app.settings.get().singleKeyShortcuts)}
 			tabIndex={props.highlighted || props.tabbable ? 0 : -1}
 			style={`--depth: ${Math.min(depth, MAX_INDENT)}`}
 			onClick={onRowClick}
@@ -598,7 +600,8 @@ function EmptyState(props: { doneToday: number }) {
 		return (
 			<div class="empty-state error" role="status">
 				<strong>No tasks to show yet.</strong>
-				The banner above says why. Details are in the log.
+				The banner above says why. Details are in the log
+				(%LOCALAPPDATA%\desk-tasks\logs).
 			</div>
 		);
 	const filtered = f.important || f.tags.length || f.text.trim();
