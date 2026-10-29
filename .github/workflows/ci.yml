@@ -117,3 +117,27 @@ jobs:
             gh release create latest-build dist/*.whl --target "$GITHUB_SHA" --latest \
               --title "Latest build" --notes "$notes"
           fi
+
+  install-check:
+    name: Install the published build as the README says (Windows)
+    needs: publish
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      # A system Python, as a python.org install is (the README says only-system).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.15"
+      - uses: astral-sh/setup-uv@v6
+      - name: The README's install command, verbatim
+        run: |
+          cmd=$(grep -m1 -o 'uv tool install .*releases/latest/download/[^ ]*\.whl' README.md)
+          echo "$cmd"
+          eval "$cmd"
+      - name: The installed app imports its Windows shell
+        run: |
+          py="$(uv tool dir)/desk-tasks/Scripts/python.exe"
+          "$py" -c "import desk_tasks.win.shell, webview, winrt.windows.ui.notifications; import desk_tasks; print('desk-tasks', desk_tasks.__version__)"
