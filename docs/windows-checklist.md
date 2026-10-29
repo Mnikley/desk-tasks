@@ -1,12 +1,11 @@
-# Windows checklist (manual, before v1 is done)
+# Windows checklist
 
-Everything here can only be verified on a real Windows PC. Record the Windows build
-(`winver`) and the result of each item in the README's "Verified on" table. Background for each
-item: `docs/research/windows-desktop.md`.
+The spike already proved the risky techniques on your PC. What's left is whether the real app
+holds together: the **quick check** below, five steps, about 15 minutes. The full list further
+down is reference only (for when something in the quick check looks wrong).
 
-desk-tasks writes to the Nextcloud you log in to: use a test list for the items that create, tick
-or delete tasks (Ctrl+K → "New list", e.g. "desk-tasks test"). It takes about an hour. Write down
-OK or what happened for each numbered item and send the list back (see the end).
+desk-tasks writes to the Nextcloud you log in to: do the steps in a test list (Ctrl+K →
+"New list", e.g. "desk-tasks test").
 
 ## Build and install (once)
 
@@ -30,6 +29,29 @@ uv tool install --force --python-preference only-system --python 3.15 (Get-Child
 To update later: `git pull`, then the last three lines again. Start it with `desk-tasks` (no
 console window opens). The log is `%LOCALAPPDATA%\desk-tasks\logs\desk-tasks.log`. Log in when
 it asks (your browser opens Nextcloud's "Connect to your account" page).
+
+## Quick check
+
+1. **Start and log in.** Open Notepad, run `desk-tasks`, click into Notepad and keep typing.
+   The widget appears top right without taking your typing. Log in (your browser opens
+   Nextcloud), make the test list.
+2. **Desktop layer and keys.** Drag Notepad half over the widget and click into the widget: it
+   stays behind Notepad. Win+D: it stays visible. Win+Alt+J brings it to the front, Esc sends it
+   back. Win+Alt+N, type `Test tomorrow 14:00`, Enter: the task is added.
+3. **Toast.** Open a task, add a reminder 2 minutes ahead, Esc, keep working. A desk-tasks toast
+   appears with Done and Snooze; click **Done**: the task is ticked.
+4. **Quit and restart.** Drag the widget somewhere else by its header and make it bigger with
+   the grip at the bottom right. Tick a task, then at once right-click the tray icon → Quit.
+   Start `desk-tasks` again: same place and size, and the task is still ticked.
+5. **Start with Windows.** Settings → Windows → Start with Windows on. Sign out and in: it
+   starts by itself and doesn't take the focus.
+
+Send me OK, or what happened at the step that went wrong plus the last 100 lines of
+`%LOCALAPPDATA%\desk-tasks\logs\desk-tasks.log`.
+
+## Full list (reference)
+
+Background for each item: `docs/research/windows-desktop.md`.
 
 ## Spike (build order step 0; everything else waits for it)
 - The page loads from `https://app.desk-tasks.example/` (virtual host mapping), under the spec's
@@ -128,9 +150,3 @@ again; the lists show at once, before the first sync finishes (that's IndexedDB)
 29. The log has no app password, and no task titles (search it for one).
 30. Uninstall (optional, last): Start with Windows off, Settings → Log out (revokes the app
     password), Quit, `uv tool uninstall desk-tasks`, delete `%LOCALAPPDATA%\desk-tasks`.
-
-## Send me
-- `winver` if it changed since the spike.
-- For each numbered item: OK, or what happened instead. Screenshots welcome.
-- The output of item 23.
-- If anything fails or crashes: the last 100 lines of the log.
