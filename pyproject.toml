@@ -1,8 +1,22 @@
 [project]
 name = "desk-tasks"
 version = "0.1.0"
-description = "A Nextcloud Tasks widget on the Windows desktop"
+description = "Nextcloud Tasks as a Windows desktop widget: pinned, keyboard-first, two-way CalDAV sync"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+authors = [{ name = "Matthias Ley" }]
 requires-python = ">=3.11"
+keywords = ["nextcloud", "caldav", "tasks", "todo", "windows", "desktop-widget"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Win32 (MS Windows)",
+  "Intended Audience :: End Users/Desktop",
+  "Operating System :: Microsoft :: Windows :: Windows 10",
+  "Operating System :: Microsoft :: Windows :: Windows 11",
+  "Programming Language :: Python :: 3",
+  "Topic :: Office/Business :: Scheduling",
+]
 dependencies = [
   # pywebview brings pythonnet (WebView2 on Windows) and its GTK/Qt backends elsewhere.
   "pywebview>=6.2.1,<6.3",
@@ -15,6 +29,11 @@ dependencies = [
   "winrt-Windows.Data.Xml.Dom>=4!10.0.28000.2705; sys_platform == 'win32'",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Mnikley/desk-tasks"
+Issues = "https://github.com/Mnikley/desk-tasks/issues"
+Changelog = "https://github.com/Mnikley/desk-tasks/blob/main/CHANGELOG.md"
+
 [project.gui-scripts]
 desk-tasks = "desk_tasks.__main__:main"
 
@@ -22,7 +41,7 @@ desk-tasks = "desk_tasks.__main__:main"
 dev = ["pytest>=9.2", "ruff>=0.14", "ty>=0.0.93"]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]

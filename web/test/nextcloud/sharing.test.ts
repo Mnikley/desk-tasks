@@ -69,6 +69,8 @@ describe.skipIf(!enabled)("lists shared with me (real Nextcloud)", () => {
 			{ principal: `principals/users/${USER.name}`, readWrite: true },
 		]);
 		await shareAs(BOB, grp, [{ principal: `principals/groups/${GROUP}` }]);
+		// A list of my own, so the test doesn't depend on another file having made one.
+		await mkcalendarAs(USER, `own-${suffix}`, `Own ${suffix}`);
 		await putAs(BOB, `${ro}pub.ics`, todo(`pub-${suffix}`, "Milk"));
 		await putAs(
 			BOB,

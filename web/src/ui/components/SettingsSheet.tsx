@@ -308,9 +308,10 @@ export function SettingsSheet(props: { onClose: () => void }) {
 			<div class="section">
 				<h3>About</h3>
 				<p class="help" style="margin: 0">
-					desk-tasks {app.version}. Logs: %LOCALAPPDATA%\desk-tasks\logs. Uses
-					Preact (MIT), ical.js (MPL 2.0), zod (MIT), pywebview (BSD), keyring
-					(MIT), pystray (LGPL), PyWinRT (MIT).
+					desk-tasks {app.version}, MIT licence. Logs:
+					%LOCALAPPDATA%\desk-tasks\logs. Uses Preact (MIT), ical.js (MPL 2.0),
+					zod (MIT), pywebview (BSD), keyring (MIT), pystray (LGPL), PyWinRT
+					(MIT). Notices and source: github.com/Mnikley/desk-tasks
 				</p>
 			</div>
 		</SheetFrame>

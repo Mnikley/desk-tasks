@@ -1,34 +1,26 @@
-# Windows checklist
+# Testing on Windows
 
-The spike already proved the risky techniques on your PC. What's left is whether the real app
-holds together: the **quick check** below, five steps, about 15 minutes. The full list further
-down is reference only (for when something in the quick check looks wrong).
+CI checks that desk-tasks installs on Windows and that its Win32 and WinRT calls load, but a CI
+runner has no desktop to look at. This is the manual test on a real PC: a **quick check**
+(five steps, about 15 minutes) for a new build, and the **full list** below for a release or
+when something in the quick check looks wrong.
 
 desk-tasks writes to the Nextcloud you log in to: do the steps in a test list (Ctrl+K →
-"New list", e.g. "desk-tasks test").
+"New list", e.g. "desk-tasks test"), or with a test account.
 
-## Build and install (once)
+## Install the build to test
 
-You have uv, git and Python 3.15 from the spike. Add bun, which builds the UI bundle:
-
-```powershell
-winget install Oven-sh.Bun
-```
-
-Open a new PowerShell window, then:
+The latest build of `main` installs as in the README. To test your own branch, build the wheel
+on the Windows machine (needs [Bun](https://bun.sh): `winget install Oven-sh.Bun`):
 
 ```powershell
-cd desk-tasks
-git pull
 bun install
 bun run build
 uv build --wheel
 uv tool install --force --python-preference only-system --python 3.15 (Get-ChildItem dist\desk_tasks-*.whl | Select-Object -Last 1)
 ```
 
-To update later: `git pull`, then the last three lines again. Start it with `desk-tasks` (no
-console window opens). The log is `%LOCALAPPDATA%\desk-tasks\logs\desk-tasks.log`. Log in when
-it asks (your browser opens Nextcloud's "Connect to your account" page).
+Start it with `desk-tasks`. The log is `%LOCALAPPDATA%\desk-tasks\logs\desk-tasks.log`.
 
 ## Quick check
 
@@ -46,21 +38,13 @@ it asks (your browser opens Nextcloud's "Connect to your account" page).
 5. **Start with Windows.** Settings → Windows → Start with Windows on. Sign out and in: it
    starts by itself and doesn't take the focus.
 
-Send me OK, or what happened at the step that went wrong plus the last 100 lines of
-`%LOCALAPPDATA%\desk-tasks\logs\desk-tasks.log`.
+If a step fails, [open an issue](https://github.com/Mnikley/desk-tasks/issues/new/choose)
+with what happened and the last lines of the log.
 
-## Full list (reference)
+## Full list
 
-Background for each item: `docs/research/windows-desktop.md`.
-
-## Spike (build order step 0; everything else waits for it)
-- The page loads from `https://app.desk-tasks.example/` (virtual host mapping), under the spec's
-  CSP; a `js_api` call returns; `next_event` delivers an event from Python.
-- IndexedDB data is still there after quitting and starting again.
-- Autostart launch doesn't take focus from the app you're typing in.
-
-Passed on Windows 10 21H2 (README, "Verified on"). With the real app: quit from the tray and start
-again; the lists show at once, before the first sync finishes (that's IndexedDB).
+Record the Windows build (`winver`) and the result of each item in the README's "Verified on"
+table.
 
 ## Desktop layer
 1. The widget stays below normal windows after clicking it, typing in it, and Alt-Tab.
@@ -133,12 +117,12 @@ again; the lists show at once, before the first sync finishes (that's IndexedDB)
     Get-AuthenticodeSignature $exe | Format-List Status, SignerCertificate
     Get-AuthenticodeSignature (py -3.15 -c "import sys; print(sys._base_executable)") | Format-List Status, SignerCertificate
     ```
-    Expected: `Valid`, "Python Software Foundation" (needs item 17's Run value). Paste the output.
+    Expected: `Valid`, "Python Software Foundation" (needs item 17's Run value).
 24. The app password is in Credential Manager (Windows Credentials → Generic: `desk-tasks`), and
     nowhere in `%LOCALAPPDATA%\desk-tasks` (search the folder for it).
-25. Cold start time and memory (python + msedgewebview2 processes) noted in the README.
+25. Cold start time and memory (python + msedgewebview2 processes): note them with the result.
 
-## Added with the shell
+## More
 26. Rebinding: Settings → Shortcuts, "Show or hide desk-tasks" to Win+Alt+K: Win+Alt+K summons,
     Win+Alt+J does nothing. Ticking Ctrl and Alt together is refused (AltGr). Set it back.
 27. Quit flushes: tick a task and within a second choose Quit in the tray; then tick another and
