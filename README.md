@@ -11,19 +11,19 @@ Planify and the Nextcloud Tasks app, and changes only what you changed.
 
 ## Install (Windows)
 
-1. Install uv and Python 3.13 from python.org:
+1. Install uv and Python 3.15 from python.org:
 
    ```
    winget install astral-sh.uv
    ```
 
-   Then get Python 3.13 from <https://www.python.org/downloads/windows/> (the signed
+   Then get Python 3.15 from <https://www.python.org/downloads/windows/> (the signed
    python.org build; desk-tasks runs on it so Smart App Control and SmartScreen stay quiet).
 
 2. Install the wheel:
 
    ```
-   uv tool install --python-preference only-system --python 3.13 C:\path\desk_tasks-0.1.0-py3-none-any.whl
+   uv tool install --python-preference only-system --python 3.15 C:\path\desk_tasks-0.1.0-py3-none-any.whl
    ```
 
    No uv? `py -m pip install --user C:\path\desk_tasks-0.1.0-py3-none-any.whl` works the

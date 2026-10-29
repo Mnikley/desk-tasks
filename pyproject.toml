@@ -9,7 +9,10 @@ dependencies = [
   "keyring>=25.7",
   "pystray>=0.19.5",
   "pillow>=11",
-  "windows-toasts>=1.3.1; sys_platform == 'win32'",
+  # WinRT toasts directly: windows-toasts pins winrt 3.x, which has no Python 3.15 wheels.
+  "winrt-runtime>=4.0.3,<5; sys_platform == 'win32'",
+  "winrt-Windows.UI.Notifications>=4!10.0.28000.2705; sys_platform == 'win32'",
+  "winrt-Windows.Data.Xml.Dom>=4!10.0.28000.2705; sys_platform == 'win32'",
 ]
 
 [project.gui-scripts]
