@@ -1,5 +1,4 @@
-"""The desktop layer (the technique Rainmeter uses), as proven in the
-Windows spike.
+"""The desktop layer: the technique Rainmeter uses, proven on Windows 10 first.
 
 One service thread owns a hidden probe window, the global hotkeys, the foreground WinEvent hook
 and a 250 ms timer. Every z-order change of the widget goes through that thread: one writer for

@@ -17,7 +17,7 @@ on the Windows machine (needs [Bun](https://bun.sh): `winget install Oven-sh.Bun
 bun install
 bun run build
 uv build --wheel
-uv tool install --force --python-preference only-system --python 3.15 (Get-ChildItem dist\desk_tasks-*.whl | Select-Object -Last 1)
+uv tool install --force --reinstall --python-preference only-system --python 3.15 (Get-ChildItem dist\desk_tasks-*.whl | Select-Object -Last 1).FullName
 ```
 
 Start it with `desk-tasks`. The log is `%LOCALAPPDATA%\desk-tasks\logs\desk-tasks.log`.
@@ -57,12 +57,11 @@ table.
 4. Win+M, Win+Home and Aero Peek: the widget stays visible.
 5. `taskkill /f /im explorer.exe`, then start Explorer: the widget survives, the tray icon comes
    back, Win+D still works.
-6. Desktop-host lookup with: wallpaper slideshow on/off; "Show desktop icons" off; Lively or
-   Wallpaper Engine running.
+6. Items 1 and 3 still hold with: a wallpaper slideshow on and off; "Show desktop icons" off
+   (right-click the desktop → View); a live-wallpaper app (Lively, Wallpaper Engine) running.
 7. Virtual desktops: note whether the widget shows on all desktops or one (expected behaviour to
    document, not a failure).
-8. Dragging and resizing for a minute: no crash or hang (the `WM_WINDOWPOSCHANGING` subclass on the
-   WinForms form). *How:* drag by the empty part of the header; resize with the grip at the
+8. Dragging and resizing for a minute: no crash or hang. *How:* drag by the empty part of the header; resize with the grip at the
    bottom right. Quit and start again: same place, same size.
 
 ## Look and DPI
@@ -98,9 +97,9 @@ table.
     few seconds: the network-change hint, not the next minute).
 
 ## Notifications
-20. Reminder toast shows the app name "desk-tasks" and icon; Done, Snooze and click work while the
-    widget is covered by other windows. If the registry-only AppUserModelID shows nothing, switch to
-    the tray-balloon fallback and note it.
+20. Reminder notifications show the app name "desk-tasks" and its icon; Done, Snooze and a click
+    work while the widget is covered by other windows. If no notification appears at all, note
+    it (desk-tasks then falls back to tray balloons).
     *How:* give a task in the test list a reminder 2 minutes ahead and keep typing in Notepad: the
     toast doesn't interrupt your typing. It has a Snooze choice (15 minutes / 1 hour / Tomorrow
     9:00) and Done and Snooze buttons. Done completes the task (also in Nextcloud); Snooze with

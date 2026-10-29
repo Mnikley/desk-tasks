@@ -1,6 +1,5 @@
 // The task list built from stored bytes: Planify sections, the sort-order fallback, read-only
-// reasons, and writes refused before anything is sent. Ported from timesheet's tasks.test.ts
-// (its plans, time links, stats and backup aren't part of desk-tasks).
+// reasons, and writes refused before anything is sent.
 import { beforeEach, describe, expect, test } from "bun:test";
 import { attempt, type Ctx, consoleLogger } from "../src/core/ctx.ts";
 import { type ListRecord, Store } from "../src/core/store.ts";

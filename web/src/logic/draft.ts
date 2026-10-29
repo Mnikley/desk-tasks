@@ -1,5 +1,5 @@
 // The detail sheet's draft: the form, what Save sends of it, and rebasing onto a fresher
-// version. Ported from timesheet's client/taskDraft.ts (the pure parts; Restore lives in the UI).
+// version (the pure parts; Restore lives in the UI).
 import type { TaskView } from "../core/tasks.ts";
 import { fmtClock, parseClock } from "../core/time.ts";
 import type { TaskPriority, TaskStatus } from "../core/types.ts";

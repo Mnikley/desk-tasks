@@ -1,4 +1,4 @@
-// A tiny observable value and its Preact hook (timesheet's client/lib.ts pattern).
+// A tiny observable value and its Preact hook.
 import { useEffect, useState } from "preact/hooks";
 
 export interface Store<T> {

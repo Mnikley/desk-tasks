@@ -4,12 +4,16 @@ node_modules/
 dist/
 src/desk_tasks/web/
 *.egg-info/
+build/
 
 # Tool caches and output
 __pycache__/
 .pytest_cache/
 .ruff_cache/
 .screenshots/
+
+# Local configuration
+.env
 
 # Editors and OS
 .idea/

@@ -1,5 +1,5 @@
 """Windows toasts through WinRT (winrt 4.x; windows-toasts pins winrt 3.x, which has no Python
-3.15 wheels) with a registry-only AppUserModelID, as shown in the spike.
+3.15 wheels) with a registry-only AppUserModelID.
 
 Done and a Snooze button with a choice (15 min / 1 h / tomorrow 9:00); a click on the body
 summons the widget with the task. If a toast can't be shown, the tray balloon stands in."""

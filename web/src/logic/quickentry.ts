@@ -1,6 +1,5 @@
 // Task title and quick-add parsing: `Buy milk fri 17:00 /home !2 #errands`.
-// Ported from timesheet's shared/quickentry.ts (the task parts). Runs in the browser for the
-// live highlight and again when the line is submitted.
+// Runs in the browser for the live highlight and again when the line is submitted.
 
 import { addDays, fmtDate, isDate, parseClock, weekday } from "../core/time.ts";
 import type { TaskPriority } from "../core/types.ts";

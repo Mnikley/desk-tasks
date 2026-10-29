@@ -1,6 +1,5 @@
 // The core against a real, throwaway Nextcloud (run with `bun run test:nextcloud`).
-// Ported from timesheet: the "adapter via the app API" cases now drive the core's functions,
-// through a transparent proxy that counts requests and injects the faults a server can't be
+// The cases drive the core's functions through a transparent proxy that counts requests and injects the faults a server can't be
 // asked for (a differing read-back, a lost answer).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { CaldavClient, CaldavError } from "../../src/core/caldav.ts";

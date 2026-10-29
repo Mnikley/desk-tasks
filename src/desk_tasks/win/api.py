@@ -1,5 +1,5 @@
 """Win32 through ctypes: the prototypes, constants and structures the shell uses (as tested in
-the Windows spike, plus monitors, the single-instance mutex and the network hint)."""
+the Windows prototype, plus monitors, the single-instance mutex and the network hint)."""
 
 from __future__ import annotations
 

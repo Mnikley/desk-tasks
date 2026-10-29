@@ -1,6 +1,6 @@
 // The CalDAV client against a hostile fake server: requests never leave the configured origin,
 // listings can't smuggle in foreign objects, and oversized answers aren't read.
-// Ported from timesheet; the https-only rule moved to the bridge (tests/test_bridge.py).
+// The https-only rule is the bridge's (tests/test_bridge.py).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import {
 	CaldavClient,

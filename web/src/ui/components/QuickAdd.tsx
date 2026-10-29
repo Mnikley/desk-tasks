@@ -1,4 +1,4 @@
-// Quick add (bottom of every view; `n`, Win+Alt+N): timesheet's grammar with live token
+// Quick add (bottom of every view; `n`, Win+Alt+N): the quick-entry grammar with live token
 // highlighting, view defaults as removable chips, autocomplete for #, / and !, inline errors
 // (never a toast), Esc on a token makes it literal, several pasted lines ask first.
 import { useEffect, useRef, useState } from "preact/hooks";

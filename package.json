@@ -2,6 +2,8 @@
   "name": "desk-tasks",
   "private": true,
   "license": "MIT",
+  "repository": "github:Mnikley/desk-tasks",
+  "packageManager": "bun@1.4.4",
   "type": "module",
   "scripts": {
     "build": "bun web/scripts/build.ts",

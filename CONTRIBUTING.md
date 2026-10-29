@@ -22,7 +22,8 @@ bun run test:ui    # the UI in Chromium (needs: bunx playwright-core install chr
 ```
 
 If you touched sync, writes, lists, sharing, order, recurrence or reminders, also run
-`bun run test:nextcloud` (Docker). CI runs all of these, plus a Windows job on Python 3.15.
+`bun run test:nextcloud` (Docker). CI runs all of these on every push (pull requests skip the
+Docker suite), plus Python 3.11 and a Windows job on Python 3.15.
 
 ## Ground rules
 

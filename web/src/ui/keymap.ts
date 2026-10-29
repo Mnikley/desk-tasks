@@ -1,5 +1,5 @@
-// Every keyboard shortcut in one table: the handler and the `?` sheet read it (timesheet's
-// keymap.ts pattern). Single keys fire only outside text fields and dialogs, and only while
+// Every keyboard shortcut in one table: the handler and the `?` sheet read it.
+// Single keys fire only outside text fields and dialogs, and only while
 // "Single-key shortcuts" is on (WCAG 2.1.4). Matching: printable keys
 // match on `e.key` and ignore Shift (so #, /, ?, +, *, _ work on QWERTZ and US); a key with
 // AltGraph held counts as unmodified (Windows reports AltGr as Ctrl+Alt); nothing uses Ctrl+Alt.

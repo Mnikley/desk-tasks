@@ -1,2 +1,6 @@
 # Fixtures are exact bytes (CRLF, LF and mixed endings are the point).
 *.ics -text
+
+# Lockfiles are generated; keep them out of diffs and language stats.
+bun.lock linguist-generated
+uv.lock linguist-generated

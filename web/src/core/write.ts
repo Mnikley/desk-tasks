@@ -128,7 +128,7 @@ function invalid(message: string): never {
 	throw new CoreError("invalid", message);
 }
 
-/** The checks the HTTP schema made in timesheet: refuse before anything is sent. */
+/** Input checks: refuse before anything is sent. */
 function validate(c: Change): Change {
 	const out: Change = { ...c };
 	if (c.summary !== undefined) {

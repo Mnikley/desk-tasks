@@ -1,5 +1,4 @@
 // Pure task logic the views use: ordering, due buckets, and the subtask tree.
-// Ported from timesheet's client/tasks.ts (the parts that don't talk to a server).
 import type { TaskView } from "../core/tasks.ts";
 import { addDays, daysBetween, fmtClock, fmtDayShort } from "../core/time.ts";
 import type { TaskPriority, TaskStatus } from "../core/types.ts";

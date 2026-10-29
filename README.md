@@ -8,7 +8,7 @@ the Nextcloud Tasks app, tasks.org and Planify, and changes only what you change
 ![desk-tasks: Today in light and dark, and a task's details](docs/images/desk-tasks.png)
 
 > **Status:** early (0.1). The task core and UI are tested end to end against Nextcloud 35 in
-> CI. The Windows techniques were proven on Windows 10 21H2 in a prototype (see
+> CI. The Windows techniques were proven on Windows 10 21H2 in a throwaway prototype (see
 > [Verified on](#verified-on)); the app itself is new on Windows, so bug reports are welcome.
 
 ## Features
@@ -16,8 +16,9 @@ the Nextcloud Tasks app, tasks.org and Planify, and changes only what you change
 - **On the desktop, not in the way:** stays below your windows, stays visible on Show desktop
   (Win+D), no taskbar button. Win+Alt+J summons it, Win+Alt+N opens quick add; both can be
   changed.
-- **Quick add** with a small grammar: `Call Bob tomorrow 14:00 #work !1 /Office every monday
-  // notes`, in English and German (`morgen`, `nächste Woche`, `jeden Montag`).
+- **Quick add** with a small grammar: `Call Bob tomorrow 14:00 #work !1 /Errands every monday
+  // notes` (`#` tag, `!` priority, `/` list, `//` notes), in English and German (`morgen`,
+  `nächste Woche`, `jeden Montag`).
 - **Keyboard first:** `j`/`k`, `Space` to complete, `d` due date, `1`–`4` priority, `x` to
   select, `Ctrl+K` for everything, `?` for the full list. Single-key shortcuts can be turned off.
 - **Views:** Today, Upcoming, All, each list, Trash; subtasks, your own order (drag and drop),
@@ -54,7 +55,8 @@ Open a new PowerShell window, then install the latest build:
 uv tool install --python-preference only-system --python 3.15 https://github.com/Mnikley/desk-tasks/releases/latest/download/desk_tasks-0.1.0-py3-none-any.whl
 ```
 
-Start it with `desk-tasks`. The first start connects your Nextcloud: **Log in in your
+Start it with `desk-tasks` (if PowerShell doesn't find it, run `uv tool update-shell` and open a
+new window). The first start connects your Nextcloud: **Log in in your
 browser** (Nextcloud's Login Flow), or **Use an app password instead** (Nextcloud → Settings →
 Security → Devices & sessions → Create new app password). It then asks which lists Today shows
 and offers **Start with Windows**.
@@ -62,10 +64,11 @@ and offers **Start with Windows**.
 `--python-preference only-system` makes uv use the signed python.org interpreter rather than
 its own download, so Smart App Control and SmartScreen stay quiet.
 
-**Update:** the same command with `--force --reinstall` added.
+**Update:** quit desk-tasks from the tray, then run the same command with `--force --reinstall`
+added.
 
-**Uninstall:** turn off "Start with Windows" and log out in Settings (that revokes the app
-password in Nextcloud), quit from the tray, then `uv tool uninstall desk-tasks`. To remove
+**Uninstall:** turn off "Start with Windows" and log out in Settings (that asks Nextcloud to
+revoke the app password), quit from the tray, then `uv tool uninstall desk-tasks`. To remove
 everything, also delete `%LOCALAPPDATA%\desk-tasks` (settings, logs, the local copy of your
 tasks).
 
@@ -75,7 +78,8 @@ tasks).
 - The app password is stored in Windows Credential Manager (`desk-tasks`), never in a file and
   never in the web view. One small Python function sends each request to your server's
   calendars; the page can't reach anything else (Content-Security-Policy `connect-src 'none'`).
-- Logs (`%LOCALAPPDATA%\desk-tasks\logs`, 5 × 1 MB) contain no passwords and no task text.
+- Logs (`%LOCALAPPDATA%\desk-tasks\logs`, at most 6 × 1 MB) contain no passwords and no task
+  titles or notes. They do name your server, user name and lists (in task addresses).
 
 See [SECURITY.md](SECURITY.md) for the design and how to report a vulnerability.
 
@@ -145,7 +149,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 | Windows | Result | Notes |
 |---|---|---|
-| Windows 10 21H2 (19044.7807), Python 3.15.2, WebView2 156 | Prototype: desktop layer, Win+D, hotkeys, notifications, start without stealing focus, drag and resize, live theme, Explorer restart, IndexedDB across restarts | Rounded corners are Windows 11 only; square on Windows 10. |
+| Windows 10 21H2 (19044.7807), Python 3.15.2, WebView2 156 | Prototype (not in this repository): desktop layer, Win+D, hotkeys, notifications, start without stealing focus, drag and resize, live theme, Explorer restart, IndexedDB across restarts | Rounded corners are Windows 11 only; square on Windows 10. |
 | windows-latest (CI), Python 3.15 | Installs; Win32 and WinRT calls load; pytest | No desktop session: no visual checks. |
 
 ## License

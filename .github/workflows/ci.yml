@@ -10,7 +10,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push replaces a running check, but never a run on main mid-publish.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   checks:
@@ -45,6 +46,15 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run test:nextcloud
 
+  python-min:
+    name: Python 3.11 (the oldest supported)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install 3.11
+      - run: uv run --python 3.11 pytest -q -rs
+
   windows:
     name: Windows smoke (Python 3.15)
     runs-on: windows-latest
@@ -64,7 +74,7 @@ jobs:
 
   wheel:
     name: Wheel
-    needs: [checks, windows]
+    needs: [checks, python-min, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -93,14 +103,17 @@ jobs:
         with:
           name: wheel
           path: dist
-      - name: Replace the "latest-build" release
+      - name: Update the "latest-build" release in place (the install URL never 404s)
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release delete latest-build --yes --cleanup-tag || true
-          gh release create latest-build dist/*.whl \
-            --target "$GITHUB_SHA" \
-            --latest \
-            --title "Latest build" \
-            --notes "Built from ${GITHUB_SHA::7} on main. Install or update on Windows: see the README."
+          notes="Built from ${GITHUB_SHA::7} on main. Install or update on Windows: see the README."
+          if gh release view latest-build >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest-build" -f sha="$GITHUB_SHA" -F force=true
+            gh release upload latest-build dist/*.whl --clobber
+            gh release edit latest-build --notes "$notes" --latest
+          else
+            gh release create latest-build dist/*.whl --target "$GITHUB_SHA" --latest \
+              --title "Latest build" --notes "$notes"
+          fi

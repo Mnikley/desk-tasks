@@ -1,7 +1,6 @@
 // The core's decisions against an in-memory CalDAV server: the 412 merge table, sync recovery
 // paths, undo refusals, lists. The Docker suite (test/nextcloud) proves the same machinery
 // against the real server; these run in milliseconds and cover every branch.
-// Ported from timesheet's nextcloud-fake.test.ts, re-targeted from the HTTP API at the core.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { attempt } from "../src/core/ctx.ts";
 import { addJournal } from "../src/core/journal.ts";

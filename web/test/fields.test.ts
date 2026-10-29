@@ -1,4 +1,4 @@
-// Fields desk-tasks writes beyond timesheet: DTSTART, X-PINNED, CLASS, LOCATION, URL,
+// Fields beyond the basics: DTSTART, X-PINNED, CLASS, LOCATION, URL,
 // PERCENT-COMPLETE with STATUS, DESCRIPTION dropping X-ALT-DESC, and their TOUCHES in the merge.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { attempt } from "../src/core/ctx.ts";
