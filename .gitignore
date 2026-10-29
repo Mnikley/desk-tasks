@@ -1,8 +1,18 @@
-.screenshots/
+# Dependencies and builds
 node_modules/
 .venv/
 dist/
 src/desk_tasks/web/
+*.egg-info/
+
+# Tool caches and output
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+.screenshots/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
