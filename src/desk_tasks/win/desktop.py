@@ -39,14 +39,22 @@ Target = Any
 
 
 class ZGuard:
-    """Subclasses the widget window: WM_WINDOWPOSCHANGING gets SWP_NOZORDER unless the band
-    writer allows it or the widget is summoned; WM_DPICHANGED applies the suggested rect.
-    Installed on the thread that owns the window (SetWindowSubclass rule)."""
+    """Subclasses the widget window (installed on the thread that owns it, SetWindowSubclass
+    rule):
+
+    - WM_WINDOWPOSCHANGING gets SWP_NOZORDER unless the band writer allows it or the widget is
+      summoned.
+    - WM_DPICHANGED applies the suggested rect (dragged onto another monitor), except while the
+      shell places the window itself.
+    - WM_QUERYENDSESSION / WM_ENDSESSION never reach WinForms, which would close the form at
+      once: the UI flushes first (`on_end_session`)."""
 
     def __init__(self) -> None:
         self.allow = False
         self.summoned = False
+        self.placing = False
         self.on_moved: Callable[[], None] | None = None
+        self.on_end_session: Callable[[], None] | None = None
         self._proc = api.SUBCLASSPROC(self._wndproc)
 
     def install(self, hwnd: int) -> bool:
@@ -57,13 +65,19 @@ class ZGuard:
             if msg == api.WM_WINDOWPOSCHANGING and lp and not self.allow and not self.summoned:
                 pos = ctypes.cast(lp, ctypes.POINTER(api.WINDOWPOS)).contents
                 pos.flags |= api.SWP_NOZORDER
-            elif msg == api.WM_DPICHANGED and lp:
+            elif msg == api.WM_DPICHANGED and lp and not self.placing:
                 r = ctypes.cast(lp, ctypes.POINTER(W.RECT)).contents
                 user32.SetWindowPos(
                     hwnd, None, r.left, r.top, r.right - r.left, r.bottom - r.top, api.PLACE
                 )
                 if self.on_moved:
                     self.on_moved()
+            elif msg == api.WM_QUERYENDSESSION:
+                return 1
+            elif msg == api.WM_ENDSESSION:
+                if wp and self.on_end_session:
+                    self.on_end_session()
+                return 0
         except Exception:
             log.exception("widget wndproc")
         return api.comctl32.DefSubclassProc(hwnd, msg, wp, lp)
@@ -91,11 +105,10 @@ class Service(threading.Thread):
         self.ready = threading.Event()
         #: Activate the form and focus the WebView, on the UI thread.
         self.on_activate: Callable[[], None] | None = None
-        #: Windows is shutting down: the UI flushes, then the app exits.
-        self.on_quit: Callable[[], None] | None = None
         self.taskbar_created = user32.RegisterWindowMessageW("TaskbarCreated")
         self.summon_message = user32.RegisterWindowMessageW(SUMMON_MESSAGE)
         self._hotkeys: dict[int, str] = {}
+        self._summoned_at = 0.0
         self._keep: list[Any] = []
 
     # ---- any thread ----
@@ -190,14 +203,6 @@ class Service(threading.Thread):
                     self.emit({"type": "theme", "dark": api.apps_use_dark()})
             elif msg == api.WM_POWERBROADCAST and wp == api.PBT_APMRESUMEAUTOMATIC:
                 self.emit({"type": "resumed"})
-            elif msg == api.WM_QUERYENDSESSION:
-                if self.on_quit:
-                    self.on_quit()
-                return 1
-            elif msg == api.WM_ENDSESSION and wp:
-                # Windows ends the process when this returns: give the UI a moment to flush.
-                time.sleep(3)
-                return 0
         except Exception:
             log.exception("probe wndproc")
         return user32.DefWindowProcW(hwnd, msg, wp, lp)
@@ -282,6 +287,7 @@ class Service(threading.Thread):
         if self.state != "summoned":
             fg = user32.GetForegroundWindow()
             self.prev_foreground = int(fg) if fg and int(fg) != self.hwnd else 0
+            self._summoned_at = time.monotonic()
             self._move("summon")
         if not user32.SetForegroundWindow(self.hwnd):
             log.info("SetForegroundWindow refused (no recent input in this process)")
@@ -299,6 +305,12 @@ class Service(threading.Thread):
         self.emit({"type": "dismissed"})
 
     def _on_foreground(self, *_args: Any) -> None:
+        # Another app took the foreground (own windows are skipped). A summoned widget that
+        # never got activated (SetForegroundWindow refused) sees no Deactivate: dismiss it here,
+        # but not in the moment right after the summon (a toast click hands over the
+        # foreground in steps).
+        if self.state == "summoned" and time.monotonic() - self._summoned_at > 0.5:
+            self._dismiss(restore_focus=False)
         # The foreground event can arrive before Show desktop has finished raising the host.
         for _ in range(5):
             if self._check_desktop():

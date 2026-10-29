@@ -95,4 +95,11 @@ describe("bridge", () => {
 			"bad value for readOnly",
 		);
 	});
+
+	test("a long-poll whose answer never comes ends as null (the event loop goes on)", async () => {
+		const b = new Bridge(api({ next_event: () => new Promise(() => {}) }));
+		const t = performance.now();
+		expect(await b.nextEvent(0, 50)).toBeNull();
+		expect(performance.now() - t).toBeLessThan(1000);
+	});
 });

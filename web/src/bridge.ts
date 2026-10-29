@@ -228,8 +228,18 @@ export class Bridge {
 	}
 
 	/** The next shell event, or null after `timeoutS`. Unknown events are logged and skipped. */
-	async nextEvent(timeoutS = 25): Promise<ShellEvent | null> {
-		const raw = await this.api.next_event(timeoutS);
+	/** The next shell event, or null. An answer that never comes (the page's bridge object was
+	 * replaced under a call in flight) counts as null after `timeoutS` plus `graceMs`, so the
+	 * event loop never stops for good. */
+	async nextEvent(timeoutS = 25, graceMs = 10_000): Promise<ShellEvent | null> {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const lost = new Promise<null>((r) => {
+			timer = setTimeout(() => r(null), timeoutS * 1000 + graceMs);
+		});
+		const raw = await Promise.race([
+			this.api.next_event(timeoutS),
+			lost,
+		]).finally(() => clearTimeout(timer));
 		if (raw === null) return null;
 		const r = shellEvent.safeParse(raw);
 		if (r.success) return r.data;

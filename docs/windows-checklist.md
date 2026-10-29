@@ -120,8 +120,11 @@ again; the lists show at once, before the first sync finishes (that's IndexedDB)
 26. Rebinding: Settings → Shortcuts, "Show or hide desk-tasks" to Win+Alt+K: Win+Alt+K summons,
     Win+Alt+J does nothing. Ticking Ctrl and Alt together is refused (AltGr). Set it back.
 27. Quit flushes: tick a task and within a second choose Quit in the tray; then tick another and
-    sign out of Windows at once. After starting again both are completed in Nextcloud.
-28. Links in notes: `https://example.org` opens in the browser; `file:///C:/Windows` does nothing.
+    sign out of Windows at once; then summon, tick a third and press Alt+F4. After starting again
+    all three are completed in Nextcloud. Signing out isn't held up by desk-tasks.
+28. Links in notes: `https://example.org` opens in the browser (also with a middle click);
+    `file:///C:/Windows` does nothing. Drag a file from Explorer onto the widget: nothing
+    happens, and the widget keeps syncing afterwards (the dot still spins on F5).
 29. The log has no app password, and no task titles (search it for one).
 30. Uninstall (optional, last): Start with Windows off, Settings → Log out (revokes the app
     password), Quit, `uv tool uninstall desk-tasks`, delete `%LOCALAPPDATA%\desk-tasks`.
