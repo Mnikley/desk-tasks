@@ -91,7 +91,7 @@ const loginState = z.discriminatedUnion("state", [
 export type LoginState = z.infer<typeof loginState>;
 
 const summonTarget = z.union([
-	z.enum(["list", "quick-add", "settings"]),
+	z.enum(["list", "today", "quick-add", "settings"]),
 	z.object({ task: z.string() }),
 ]);
 
@@ -103,6 +103,7 @@ const shellEvent = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("network") }),
 	z.object({ type: z.literal("tick") }),
 	z.object({ type: z.literal("sync-now") }),
+	z.object({ type: z.literal("pause-notifications") }),
 	z.object({
 		type: z.literal("toast-action"),
 		action: z.enum([

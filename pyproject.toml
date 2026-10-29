@@ -47,6 +47,8 @@ ignore = ["S101"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S"]
+# Windows-only modules assert the platform before their imports (so ty checks them as Windows).
+"src/desk_tasks/win/{api,desktop,shell}.py" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

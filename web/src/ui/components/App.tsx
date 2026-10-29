@@ -10,6 +10,7 @@ import { Header, ListHeader } from "./Header.tsx";
 import { QuickAdd } from "./QuickAdd.tsx";
 import { Sheets } from "./Sheets.tsx";
 import { TaskList } from "./TaskList.tsx";
+import { ResizeGrip } from "./WindowChrome.tsx";
 
 export function App() {
 	const app = useApp();
@@ -72,6 +73,7 @@ export function App() {
 			<Toasts />
 			<Sheets />
 			<Confirmation />
+			<ResizeGrip app={app} />
 		</div>
 	);
 }

@@ -104,15 +104,36 @@ button {
 	height: 44px;
 	padding: 0 calc(var(--pad) - 6px) 0 calc(var(--pad) - 6px);
 	flex: none;
-	-webkit-app-region: drag;
-}
-.bar > * {
-	-webkit-app-region: no-drag;
+	/* The header's empty space moves the window (WindowChrome.tsx). */
+	touch-action: none;
 }
 .bar .grow {
 	flex: 1;
 	align-self: stretch;
-	-webkit-app-region: drag;
+}
+/* Resize grip, bottom right: two short diagonals, quiet until hovered. */
+.grip {
+	position: absolute;
+	/* Inset, so the window's rounded corner doesn't clip the lines. */
+	right: 2px;
+	bottom: 2px;
+	width: 10px;
+	height: 10px;
+	cursor: nwse-resize;
+	touch-action: none;
+	z-index: 5;
+	opacity: 0.5;
+	background: linear-gradient(
+		135deg,
+		transparent 0 45%,
+		var(--ring) 45% 53%,
+		transparent 53% 68%,
+		var(--ring) 68% 76%,
+		transparent 76%
+	);
+}
+.grip:hover {
+	opacity: 1;
 }
 .switcher-btn {
 	display: inline-flex;

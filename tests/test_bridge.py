@@ -45,6 +45,9 @@ class FakeShell:
     def quit(self) -> None:
         self.calls.append(("quit", None))
 
+    def apply(self, settings: dict[str, Any]) -> None:
+        self.calls.append(("apply", settings))
+
 
 def make(tmp: Path, **kw: Any) -> tuple[Api, FakeShell, MemoryVault]:
     shell = FakeShell()

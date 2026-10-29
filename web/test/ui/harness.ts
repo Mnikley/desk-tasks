@@ -48,6 +48,8 @@ export async function openApp(
 		height?: number;
 		stub?: Partial<StubOptions>;
 		scheme?: "light" | "dark";
+		/** devicePixelRatio (Windows display scaling). */
+		scale?: number;
 		seed?: boolean;
 		/** Lets a test inject axe-core (the app's CSP refuses inline scripts). */
 		bypassCSP?: boolean;
@@ -59,6 +61,7 @@ export async function openApp(
 	const ctx = await b.newContext({
 		viewport: { width: opts.width ?? 400, height: opts.height ?? 560 },
 		colorScheme: opts.scheme ?? "light",
+		deviceScaleFactor: opts.scale ?? 1,
 		timezoneId: TZ,
 		locale: "en-GB",
 		bypassCSP: opts.bypassCSP ?? false,

@@ -82,6 +82,8 @@ class Shell(Protocol):
     def window(self, cmd: WindowCmd) -> dict[str, Any] | None: ...
     def open_url(self, url: str) -> None: ...
     def quit(self) -> None: ...
+    def apply(self, settings: dict[str, Any]) -> None:
+        """Settings the shell acts on (hotkeys, autostart), after every settings_set."""
 
 
 class Sealed:
@@ -373,6 +375,7 @@ class Api:
             self._settings.set(patch)
         except SettingsError as e:
             return _bad(str(e))
+        self._shell.apply(dict(self._settings.get()))
         return {"ok": True, "settings": self.settings_get()}
 
     @_guarded(_not_ok)

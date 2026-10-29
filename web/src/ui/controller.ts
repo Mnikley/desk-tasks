@@ -1449,6 +1449,8 @@ export class Controller {
 					this.sheet.set({ kind: "settings" });
 					return;
 				}
+				// The missed-reminders summary toast opens Today.
+				if (ev.target === "today") this.setView({ kind: "today" });
 				if (typeof ev.target === "object") {
 					const href = ev.target.task;
 					const t = this.tasks().find((x) => x.href === href);
@@ -1481,6 +1483,13 @@ export class Controller {
 				return;
 			case "quit":
 				void this.quit();
+				return;
+			case "pause-notifications":
+				// Tray "Pause notifications 1 h" (Settings shows it and can resume).
+				void this.saveSettings({
+					notificationsPausedUntil: this.ctx.now() + 3_600_000,
+				});
+				this.toast("Notifications paused for 1 hour.");
 				return;
 			case "toast-action":
 				void this.reminders?.action(ev.action, ev.href);

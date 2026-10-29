@@ -1,7 +1,13 @@
 // The header: view switcher ("Today ▾ 5"), stale warning, sync dot, quick-add and overflow
 // buttons. The switcher popover lists views, then lists, then "New list…" and "Trash", filtered
 // by typing (spec "Views and information architecture").
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import {
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "preact/hooks";
 import { fmtClock, zoned } from "../../core/time.ts";
 import { STALE_MS } from "../controller.ts";
 import { paletteCommands } from "../keymap.ts";
@@ -11,6 +17,7 @@ import { useApp } from "./context.ts";
 import { Caret, Lock, More, Plus, Shared, Warning } from "./icons.tsx";
 import { Scrim, useRestoreFocus } from "./Sheet.tsx";
 import { dotStyle } from "./TaskList.tsx";
+import { headerDrag } from "./WindowChrome.tsx";
 
 export function Header(props: { onQuickAdd: () => void }) {
 	const app = useApp();
@@ -19,6 +26,7 @@ export function Header(props: { onQuickAdd: () => void }) {
 	useStore(app.filter);
 	useStore(app.now);
 	const sync = useStore(app.syncState);
+	const drag = useMemo(() => headerDrag(app), [app]);
 	const open = useStore(app.switcherOpen);
 	const [menu, setMenu] = useState(false);
 	const known = app.ctx.store.meta.lastSync !== null || app.lists().length > 0;
@@ -41,7 +49,7 @@ export function Header(props: { onQuickAdd: () => void }) {
 				? `Synced at ${lastText}`
 				: "Not synced yet";
 	return (
-		<header class="bar">
+		<header class="bar" {...drag}>
 			<button
 				type="button"
 				class="switcher-btn"

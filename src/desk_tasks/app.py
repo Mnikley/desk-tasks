@@ -1,9 +1,9 @@
 """Starting desk-tasks: settings, logs, the bridge, the window, the 30 s tick.
 
 On Windows the window loads the bundle through a WebView2 virtual host and the service thread
-handles the desktop layer, hotkeys, tray and toasts (src/desk_tasks/win/, built after the spike
-results). On Linux (development only) it is a plain pywebview window served by pywebview's
-built-in server, and the shell calls are logged.
+handles the desktop layer, hotkeys, tray and toasts (src/desk_tasks/win/). On Linux
+(development only) it is a plain pywebview window served by pywebview's built-in server, and
+the shell calls are logged.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import webbrowser
+from pathlib import Path
 from typing import Any
 
 from . import __version__, logs, paths
@@ -57,6 +58,9 @@ class DevShell:
     def quit(self) -> None:
         exit_now()
 
+    def apply(self, settings: dict[str, Any]) -> None:
+        log.debug("settings (dev): hotkeys and autostart are Windows only")
+
 
 def _vault() -> Vault:
     try:
@@ -77,6 +81,22 @@ def _ticker(api: Api) -> None:
         api._push({"type": "tick"})
 
 
+def _windows(settings: SettingsFile, home: Path, *, debug: bool) -> int:
+    from .win import desktop
+    from .win.shell import WinShell
+
+    if not desktop.first_instance():
+        # Already running: bring that one to the front and leave.
+        if not desktop.signal_first_instance():
+            log.warning("another desk-tasks holds the mutex but doesn't answer")
+        return 0
+    shell = WinShell(home, settings)
+    api = Api(settings, _vault(), Events(), shell)
+    shell.attach(api)
+    threading.Thread(target=_ticker, args=(api,), name="tick", daemon=True).start()
+    return shell.run(debug)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="desk-tasks")
     parser.add_argument("--debug", action="store_true", help="log more, open DevTools")
@@ -85,21 +105,19 @@ def main(argv: list[str] | None = None) -> int:
     home = paths.data_dir()
     logs.setup(home / "logs", debug=args.debug)
     log.info("desk-tasks %s starting", __version__)
-    if sys.platform == "win32":
-        # The Windows shell (virtual host, desktop layer, hotkeys, tray, toasts) waits for the
-        # spike results (docs/spike.md); until then only the development window exists.
-        log.error("the Windows shell isn't built yet")
-        return 1
-
-    import webview
-
     index = paths.web_dir() / "index.html"
     if not index.exists():
         log.error("no UI bundle at %s; run `bun run build`", index)
         print(f"No UI bundle at {index}. Run `bun run build` first.", file=sys.stderr)
         return 1
+    settings = SettingsFile(home / "settings.json")
+    if sys.platform == "win32":
+        return _windows(settings, home, debug=args.debug)
+
+    import webview
+
     shell = DevShell()
-    api = Api(SettingsFile(home / "settings.json"), _vault(), Events(), shell)
+    api = Api(settings, _vault(), Events(), shell)
     window = webview.create_window(
         "desk-tasks", str(index), js_api=Sealed(), width=400, height=560, min_size=(320, 280)
     )

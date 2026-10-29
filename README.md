@@ -5,9 +5,9 @@ always visible, never in the way. Win+Alt+J brings it to the front with full key
 control; Esc sends it back. It reads and writes your lists over CalDAV, next to tasks.org,
 Planify and the Nextcloud Tasks app, and changes only what you changed.
 
-> **Status:** the Windows shell (desktop layer, hotkeys, tray, toasts) is waiting on the
-> Windows spike (`docs/spike.md`). The UI, the task core and the Python bridge are built and
-> tested on Linux. See `PROGRESS.md` for what's done and what's next.
+> **Status:** the Windows spike passed (see "Verified on"). The UI, the task core and the
+> Python bridge are built and tested on Linux; the Windows shell is built from the spike and
+> waits for `docs/windows-checklist.md`. See `PROGRESS.md` for what's done and what's next.
 
 ## Install (Windows)
 
@@ -20,7 +20,8 @@ Planify and the Nextcloud Tasks app, and changes only what you changed.
    Then get Python 3.15 from <https://www.python.org/downloads/windows/> (the signed
    python.org build; desk-tasks runs on it so Smart App Control and SmartScreen stay quiet).
 
-2. Install the wheel:
+2. Install the wheel (to build it from this repository on Windows: `bun install`,
+   `bun run build`, `uv build --wheel`; see `docs/windows-checklist.md`, "Build and install"):
 
    ```
    uv tool install --python-preference only-system --python 3.15 C:\path\desk_tasks-0.1.0-py3-none-any.whl
@@ -97,7 +98,7 @@ Docker container (`web/test/nextcloud/`).
   Nextcloud's calendars with the app password from Credential Manager; the page never sees the
   password and can't reach anything else (`connect-src 'none'`). Login Flow v2, settings,
   shell events.
-- **Windows shell** (after the spike): the desktop layer (Rainmeter's technique), global
+- **Windows shell** (`src/desk_tasks/win/`): the desktop layer (Rainmeter's technique), global
   hotkeys, tray, toasts, autostart.
 
 ## Open questions and the defaults chosen
@@ -106,8 +107,8 @@ Docker container (`web/test/nextcloud/`).
   alternative.
 - **Windows version:** Windows 10 22H2 and Windows 11 23H2–25H2 are the targets; the checklist
   (`docs/windows-checklist.md`) runs on what you have.
-- **Toasts with a registry-only AppUserModelID:** unverified until the checklist; if they
-  don't show, desk-tasks uses tray balloons (the specified fallback).
+- **Toasts with a registry-only AppUserModelID:** shown in the spike on Windows 10 21H2;
+  the tray balloon stays the fallback if a toast fails.
 - **Planify** regenerates tasks and drops start dates, unknown properties, "in progress",
   relative alarms and desk-tasks' "repeat from completion". desk-tasks can't prevent that; the
   task sheet's footer says "Modified … in Planify" so you can tell why something changed.
@@ -123,4 +124,4 @@ Docker container (`web/test/nextcloud/`).
 
 | Windows build | Spike | Checklist | Notes |
 |---|---|---|---|
-| (waiting for your results) | | | |
+| Windows 10 21H2 (19044.7807), Python 3.15.2, WebView2 156 | passed: virtual host + CSP, bridge (38 ms round trip), long-poll, IndexedDB across restarts, reload keys blocked, desktop layer, Win+D, hotkey + taken-combo error (1409), toast, no focus steal at start, drag/resize, live theme, Explorer restart | pending | Rounded corners and border colour are Windows 11 only (`E_INVALIDARG` on 10): square corners there. Page ready 2.0 s after start. |
