@@ -22,6 +22,7 @@ from .bridge import Api, Sealed, Toast, TrayStatus, WindowCmd, exit_now
 from .credentials import KeyringVault, MemoryVault, Vault
 from .events import Events
 from .settings import SettingsFile
+from .updates import Updater
 
 log = logging.getLogger(__name__)
 
@@ -81,7 +82,25 @@ def _ticker(api: Api) -> None:
         api._push({"type": "tick"})
 
 
-def _windows(settings: SettingsFile, home: Path, *, debug: bool) -> int:
+def _updater(settings: SettingsFile, home: Path, events: Events) -> Updater:
+    return Updater(
+        home / "updates",
+        settings,
+        events.put,
+        kind=paths.install_kind(),
+        log_file=home / "logs" / "update.log",
+    )
+
+
+def _forget(settings: SettingsFile) -> int:
+    """Logs out as Settings does: Nextcloud is asked to revoke the app password (best effort)
+    and Credential Manager forgets it."""
+    r = Api(settings, _vault(), Events(), DevShell()).disconnect()
+    log.info("logged out for the uninstaller (revoked: %s)", r.get("revoked"))
+    return 0
+
+
+def _windows(settings: SettingsFile, home: Path, *, debug: bool, show: bool) -> int:
     from .win import desktop
     from .win.shell import WinShell
 
@@ -90,21 +109,33 @@ def _windows(settings: SettingsFile, home: Path, *, debug: bool) -> int:
         if not desktop.signal_first_instance():
             log.warning("another desk-tasks holds the mutex but doesn't answer")
         return 0
-    shell = WinShell(home, settings)
-    api = Api(settings, _vault(), Events(), shell)
+    shell = WinShell(home, settings, show=show)
+    events = Events()
+    updater = _updater(settings, home, events)
+    api = Api(settings, _vault(), events, shell, updater=updater)
+    updater.on_install = api._request_quit
     shell.attach(api)
     threading.Thread(target=_ticker, args=(api,), name="tick", daemon=True).start()
+    updater.start()
     return shell.run(debug)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="desk-tasks")
     parser.add_argument("--debug", action="store_true", help="log more, open DevTools")
+    parser.add_argument(
+        "--show", action="store_true", help="come to the front once started (Start menu)"
+    )
+    parser.add_argument("--version", action="version", version=f"desk-tasks {__version__}")
+    # The uninstaller's "also remove your settings": log out first.
+    parser.add_argument("--forget", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
     home = paths.data_dir()
     logs.setup(home / "logs", debug=args.debug)
     log.info("desk-tasks %s starting", __version__)
+    if args.forget:
+        return _forget(SettingsFile(home / "settings.json"))
     index = paths.web_dir() / "index.html"
     if not index.exists():
         log.error("no UI bundle at %s; run `bun run build`", index)
@@ -112,12 +143,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     settings = SettingsFile(home / "settings.json")
     if sys.platform == "win32":
-        return _windows(settings, home, debug=args.debug)
+        return _windows(settings, home, debug=args.debug, show=args.show)
 
     import webview
 
     shell = DevShell()
-    api = Api(settings, _vault(), Events(), shell)
+    events = Events()
+    updater = _updater(settings, home, events)
+    api = Api(settings, _vault(), events, shell, updater=updater)
     window = webview.create_window(
         "desk-tasks", str(index), js_api=Sealed(), width=400, height=560, min_size=(320, 280)
     )
@@ -126,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     shell.window_ref = window
     window.expose(*api._calls())
     threading.Thread(target=_ticker, args=(api,), name="tick", daemon=True).start()
+    updater.start()
     webview.start(
         debug=args.debug,
         http_server=True,

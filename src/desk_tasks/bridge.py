@@ -28,6 +28,7 @@ from .dav import Connector, Dav, DavResult, Origin, Refused, fail, open_connecti
 from .events import Events
 from .login import INTERNAL, Account, Connection, State, failed, revoke
 from .settings import SettingsError, SettingsFile
+from .updates import Updater, parse_version
 
 log = logging.getLogger(__name__)
 web_log = logging.getLogger("desk_tasks.web")
@@ -46,6 +47,10 @@ CALLS = (
     "settings_set",
     "open_url",
     "log",
+    "update_get",
+    "update_check",
+    "update_install",
+    "update_dismiss",
 )
 
 #: After the UI is told to quit, Python exits this long later whether or not it answered.
@@ -155,6 +160,13 @@ def check_window(v: object) -> WindowCmd:
     raise _Invalid
 
 
+def check_version(v: object) -> str:
+    """ "0.2.0": a version the update calls name."""
+    if not isinstance(v, str) or parse_version(v) is None:
+        raise _Invalid
+    return v
+
+
 def check_link(v: object) -> str:
     """Links from task notes: http, https and mailto only."""
     url = _text(v, 2000)
@@ -216,8 +228,10 @@ class Api:
         *,
         connector: Connector = open_connection,
         open_browser: Callable[[str], object] = webbrowser.open,
+        updater: Updater | None = None,
     ) -> None:
         self._settings = settings
+        self._updater = updater
         self._vault = vault
         self._events = events
         self._shell = shell
@@ -401,6 +415,43 @@ class Api:
         lvl = _LEVELS.get(level, logging.INFO) if isinstance(level, str) else logging.INFO
         text = msg if isinstance(msg, str) else repr(msg)
         web_log.log(lvl, "%s", text[:4000].replace("\r", " ").replace("\n", " | "))
+
+    # -- updates (updates.py) --------------------------------------------------------------
+
+    @_guarded(_not_ok)
+    def update_get(self) -> dict[str, Any]:
+        if self._updater is None:
+            return _bad("Updates aren't available here.")
+        return {"ok": True, "state": self._updater.snapshot(deliver=True)}
+
+    @_guarded(_not_ok)
+    def update_check(self) -> dict[str, Any]:
+        if self._updater is None:
+            return _bad("Updates aren't available here.")
+        self._updater.check_soon()
+        return {"ok": True}
+
+    @_guarded(_not_ok)
+    def update_install(self, version: object) -> dict[str, Any]:
+        if self._updater is None:
+            return _bad("Updates aren't available here.")
+        try:
+            v = check_version(version)
+        except _Invalid:
+            return _bad()
+        why = self._updater.install(v)
+        return _bad(why) if why else {"ok": True}
+
+    @_guarded(_not_ok)
+    def update_dismiss(self, version: object) -> dict[str, Any]:
+        if self._updater is None:
+            return _bad("Updates aren't available here.")
+        try:
+            v = check_version(version)
+        except _Invalid:
+            return _bad()
+        self._updater.dismiss(v)
+        return {"ok": True}
 
 
 def exit_now() -> None:

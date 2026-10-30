@@ -62,7 +62,7 @@ include = ["src/desk_tasks", "README.md", "pyproject.toml"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests"]
+src = ["src", "tests", "packaging"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "S"]
@@ -70,6 +70,8 @@ ignore = ["S101"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S"]
+# Build scripts: they run uv, the installer and the built app on purpose.
+"packaging/**" = ["S603", "S607"]
 # Windows-only modules assert the platform before their imports (so ty checks them as Windows).
 "src/desk_tasks/win/{api,desktop,shell}.py" = ["E402"]
 

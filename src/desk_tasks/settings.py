@@ -42,6 +42,7 @@ class Settings(TypedDict, total=False):
     defaultList: str | None
     density: str
     firstRunDone: bool
+    updateCheck: bool
 
 
 DEFAULTS: Settings = {
@@ -61,6 +62,7 @@ DEFAULTS: Settings = {
     "defaultList": None,
     "density": "comfortable",
     "firstRunDone": False,
+    "updateCheck": True,
 }
 
 
@@ -134,6 +136,7 @@ _CHECKS = {
     "defaultList": _is_str_or_none,
     "density": lambda v: v in ("comfortable", "compact"),
     "firstRunDone": lambda v: isinstance(v, bool),
+    "updateCheck": lambda v: isinstance(v, bool),
 }
 
 #: settings.json never grows past this (a page in a loop can't fill the disk).

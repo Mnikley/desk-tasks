@@ -31,6 +31,8 @@ PROBE_CLASS = "DeskTasksProbe"
 PROBE_TITLE = "desk-tasks probe"
 #: Posted to the probe by a second start.
 SUMMON_MESSAGE = "desk-tasks-summon"
+#: Posted to the probe by the installer before it replaces the files: quit as tray Quit does.
+QUIT_MESSAGE = "desk-tasks-quit"
 
 Emit = Callable[[dict[str, Any]], None]
 #: "list" | "quick-add" | "settings" | {"task": href}
@@ -104,8 +106,11 @@ class Service(threading.Thread):
         self.ready = threading.Event()
         #: Activate the form and focus the WebView, on the UI thread.
         self.on_activate: Callable[[], None] | None = None
+        #: The installer asks to quit (QUIT_MESSAGE).
+        self.on_quit: Callable[[], None] | None = None
         self.taskbar_created = user32.RegisterWindowMessageW("TaskbarCreated")
         self.summon_message = user32.RegisterWindowMessageW(SUMMON_MESSAGE)
+        self.quit_message = user32.RegisterWindowMessageW(QUIT_MESSAGE)
         self._hotkeys: dict[int, str] = {}
         self._summoned_at = 0.0
         self._keep: list[Any] = []
@@ -196,6 +201,11 @@ class Service(threading.Thread):
                 self._apply_band()
             elif msg == self.summon_message and msg:
                 self._summon("list")
+                return 0
+            elif msg == self.quit_message and msg:
+                log.info("asked to quit (installer)")
+                if self.on_quit:
+                    self.on_quit()
                 return 0
             elif msg == api.WM_SETTINGCHANGE and lp:
                 if ctypes.wstring_at(lp) == "ImmersiveColorSet":

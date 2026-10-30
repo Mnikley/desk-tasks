@@ -76,10 +76,12 @@ def monitor_of(r: Rect) -> Monitor | None:
 
 
 class WinShell:
-    def __init__(self, home: Path, settings: SettingsFile) -> None:
+    def __init__(self, home: Path, settings: SettingsFile, *, show: bool = False) -> None:
         api.set_dpi_awareness()
         self.home = home
         self.settings = settings
+        #: Started from the Start menu or the installer: come to the front once shown.
+        self.summon_on_show = show
         self.guard = ZGuard()
         self.guard.on_moved = self._moved
         self.guard.on_end_session = self._end_session
@@ -102,6 +104,7 @@ class WinShell:
     # ---- wiring ----
     def attach(self, bridge: Api) -> None:
         self.bridge = bridge
+        self.service.on_quit = bridge._request_quit
 
     def _emit(self, event: dict[str, Any]) -> None:
         if self.bridge is not None:
@@ -302,6 +305,9 @@ class WinShell:
         finally:
             self.guard.placing = False
         self.service.post("show", self.hwnd)
+        if self.summon_on_show:
+            self.summon_on_show = False
+            self.service.post("summon", "list")
 
     def _activate(self) -> None:
         from System import Func, Type  # ty: ignore[unresolved-import]
