@@ -74,15 +74,13 @@ Don't change the Inno Setup `AppId` (it ties updates and the uninstaller to one 
 
 - **Network:** the app talks only to the user's Nextcloud and, for updates, to GitHub. A new
   connection of any kind needs the maintainer's agreement and an update of `PRIVACY.md`, the
-  README's "Privacy and security" and `SECURITY.md`. This is also a SignPath Foundation
-  condition (see below).
-- **Code signing policy** (README section): SignPath Foundation signs the installer, if the
-  application is approved. Their terms require that section on the home page and the release
-  pages (CI adds the link to release notes), the attribution line, the team roles and the
-  privacy policy. Only our own build outputs may be signed, never upstream binaries such as
-  python.org's Python or PyPI wheels. Keep the section accurate when the build or the team
-  changes. Until signing is wired in, `DESK_TASKS_SIGN` / `WINDOWS_CERTIFICATE` in CI is an
-  unused hook for a PFX certificate.
+  README's "Privacy and security" and `SECURITY.md`.
+- **Code signing:** the installer is unsigned, and the README says so. (A SignPath Foundation
+  application was declined in 2026.) CI has an unused hook for a PFX certificate
+  (`WINDOWS_CERTIFICATE` secret → `DESK_TASKS_SIGN` in `packaging/windows/build.py`); current
+  certificates keep their key on hardware or a cloud service, so real signing needs that
+  service's CI step instead. Sign only our own build outputs, never upstream binaries such as
+  python.org's Python or PyPI wheels.
 - **Pinned build inputs:** python.org's embeddable Python (`PYTHON`, `PYTHON_SHA256` in
   `packaging/windows/build.py`, kept in step with CI's Windows Python by a test) and Inno Setup
   (`INNO_URL`, `INNO_SHA256` in `ci.yml`). A bump needs the new SHA-256 from the official

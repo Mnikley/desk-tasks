@@ -44,7 +44,7 @@ GitHub for updates.
 - **The installer** installs per user without administrator rights. It carries python.org's
   signed embeddable Python and the dependencies pinned with hashes in `uv.lock`; the build
   pins the Python package and Inno Setup by SHA-256. The installer itself isn't code-signed
-  yet (CI signs it when a certificate is configured).
+  (CI signs it when a certificate is configured).
 - **Task text is untrusted input.** It comes from your server and from anyone who shares a list
   with you. It is rendered as text (never as HTML), and iCalendar edits are made in place on
   the parsed structure.

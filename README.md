@@ -44,9 +44,10 @@ and run it. It installs for your Windows account only, needs no administrator ri
 nothing else first (it brings its own copy of python.org's signed Python), and puts desk-tasks
 in the Start menu.
 
-The installer isn't code-signed yet (see the [code signing policy](#code-signing-policy)), so
-Windows may show "Windows protected your PC": click **More info → Run anyway**. Each release lists the installer's SHA-256 if you want to check
-your download (`Get-FileHash desk-tasks-setup.exe`).
+The installer isn't code-signed, so Windows may show "Windows protected your PC": click
+**More info → Run anyway**. On Windows 11 with Smart App Control on, Windows blocks unsigned
+installers outright; there, install with uv (below). Each release lists the installer's SHA-256
+if you want to check your download (`Get-FileHash desk-tasks-setup.exe`).
 
 The first start connects your Nextcloud: **Log in in your browser** (Nextcloud's Login Flow),
 or **Use an app password instead** (Nextcloud → Settings → Security → Devices & sessions →
@@ -95,22 +96,6 @@ desk-tasks`. Moving to the installer: uninstall this way first (your settings st
 
 [PRIVACY.md](PRIVACY.md) is the full privacy policy. See [SECURITY.md](SECURITY.md) for the design
 and how to report a vulnerability.
-
-## Code signing policy
-
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
-[SignPath Foundation](https://signpath.org/). (Applied for; until it is in place, the installer
-is unsigned.)
-
-- Only `desk-tasks-setup.exe` and its uninstaller are signed, built by GitHub Actions from this
-  repository for a tagged release (see [CONTRIBUTING.md](CONTRIBUTING.md#releasing)). The
-  Python interpreter it carries is python.org's, already signed by the Python Software
-  Foundation; the Python packages are unmodified PyPI wheels, included as they are.
-- Committers and reviewers: [Mnikley](https://github.com/Mnikley). Changes from anyone else
-  come as pull requests and are reviewed before they are merged.
-- Approvers (each signing request is approved by hand): [Mnikley](https://github.com/Mnikley).
-- Privacy: desk-tasks talks only to the Nextcloud you connect and, for updates, to GitHub; the
-  update check can be turned off. Details in [PRIVACY.md](PRIVACY.md).
 
 ## Troubleshooting
 
