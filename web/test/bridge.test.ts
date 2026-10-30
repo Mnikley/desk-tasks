@@ -19,6 +19,10 @@ function api(over: Partial<PyApi>): PyApi {
 		settings_set: no,
 		open_url: no,
 		log: () => Promise.resolve(null),
+		update_get: no,
+		update_check: no,
+		update_install: no,
+		update_dismiss: no,
 		...over,
 	};
 }

@@ -1,6 +1,6 @@
 [project]
 name = "desk-tasks"
-version = "0.1.0"
+version = "0.2.0"
 description = "Nextcloud Tasks as a Windows desktop widget: pinned, keyboard-first, two-way CalDAV sync"
 readme = "README.md"
 license = "MIT"

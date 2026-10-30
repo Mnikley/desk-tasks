@@ -1,10 +1,10 @@
 // Settings, a sheet inside the widget: Account, Lists, Shortcuts, Notifications, Appearance,
-// Windows, About.
+// Windows, Updates, About.
 import { useState } from "preact/hooks";
 import type { Hotkey, SettingsPatch } from "../../bridge.ts";
 import { attempt } from "../../core/ctx.ts";
 import { reorderLists } from "../../core/lists.ts";
-import { fmtClock, zoned } from "../../core/time.ts";
+import { fmtClock, fmtDayShort, zoned } from "../../core/time.ts";
 import { useStore } from "../store.ts";
 import { useApp } from "./context.ts";
 import { SheetFrame } from "./Sheet.tsx";
@@ -305,16 +305,126 @@ export function SettingsSheet(props: { onClose: () => void }) {
 				</label>
 			</div>
 
+			<UpdatesSection />
+
 			<div class="section">
 				<h3>About</h3>
 				<p class="help" style="margin: 0">
 					desk-tasks {app.version}, MIT licence. Logs:
 					%LOCALAPPDATA%\desk-tasks\logs. Uses Preact (MIT), ical.js (MPL 2.0),
-					zod (MIT), pywebview (BSD), keyring (MIT), pystray (LGPL), PyWinRT
-					(MIT). Notices and source: github.com/Mnikley/desk-tasks
+					zod (MIT), Python (PSF), pywebview (BSD), keyring (MIT), pystray
+					(LGPL), PyWinRT (MIT). Notices and source:
+					github.com/Mnikley/desk-tasks
 				</p>
 			</div>
 		</SheetFrame>
+	);
+}
+
+/** The version, whether there is a newer one, Check now / Update, and the automatic check. */
+function UpdatesSection() {
+	const app = useApp();
+	const s = useStore(app.settings);
+	const st = useStore(app.update);
+	if (!st) return null;
+	const a = st.available;
+	const installs = !!a && st.canInstall && a.installable;
+	const checked = (() => {
+		if (st.checkedAt === null) return "";
+		const at = zoned(st.checkedAt, app.ctx.tz);
+		const today = zoned(app.now.get(), app.ctx.tz).date;
+		return at.date === today
+			? ` Checked at ${fmtClock(at.minutes)}.`
+			: ` Checked ${fmtDayShort(at.date)}.`;
+	})();
+	let status: string;
+	if (st.phase === "downloading")
+		status = `Downloading desk-tasks ${a?.version} · ${Math.round(st.progress * 100)} %`;
+	else if (st.phase === "installing")
+		status = "Restarting to finish the update…";
+	else if (st.checking) status = "Checking for updates…";
+	else if (a)
+		status = `desk-tasks ${a.version} is available. You have ${st.current}.`;
+	else if (st.checkedAt !== null)
+		status = `desk-tasks ${st.current} is the latest version.${checked}`;
+	else status = `desk-tasks ${st.current}.`;
+	const busy = st.checking || st.phase !== "idle";
+	return (
+		<div class="section">
+			<h3>Updates</h3>
+			<p style="margin: 0 0 6px" aria-live="polite">
+				{status}
+			</p>
+			{st.error && st.phase === "idle" && (
+				<p class="error-text" style="margin: 0 0 6px">
+					{st.error}
+				</p>
+			)}
+			{a && !st.canInstall && (
+				<p class="help" style="margin: 0 0 6px">
+					This copy wasn't installed with desk-tasks-setup.exe, so it can't
+					update itself. The release page has the installer.
+				</p>
+			)}
+			<div style="display: flex; gap: 8px; flex-wrap: wrap">
+				{a ? (
+					<>
+						<button
+							type="button"
+							class="btn primary"
+							disabled={busy}
+							onClick={() => void app.installUpdate()}
+						>
+							{installs ? `Update to ${a.version}` : "Open the release page"}
+						</button>
+						{installs && (
+							<button
+								type="button"
+								class="btn"
+								onClick={() => void app.bridge.openUrl(a.page)}
+							>
+								What's new
+							</button>
+						)}
+					</>
+				) : (
+					<button
+						type="button"
+						class="btn"
+						disabled={busy}
+						onClick={() => void app.checkForUpdates()}
+					>
+						Check now
+					</button>
+				)}
+			</div>
+			{installs && (
+				<p class="help" style="margin: 6px 0 4px">
+					desk-tasks restarts to update. Changes waiting to be saved are saved
+					first.
+				</p>
+			)}
+			<label class="toggle-row">
+				<span>
+					Check for updates automatically
+					<br />
+					<span class="help">
+						Asks GitHub for the latest release twice a day. Nothing about you or
+						your tasks is sent.
+					</span>
+				</span>
+				<input
+					type="checkbox"
+					role="switch"
+					aria-checked={s.updateCheck}
+					class="switch"
+					checked={s.updateCheck}
+					onChange={(e) =>
+						void app.saveSettings({ updateCheck: e.currentTarget.checked })
+					}
+				/>
+			</label>
+		</div>
 	);
 }
 

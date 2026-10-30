@@ -1,11 +1,11 @@
-// The status banners (writes paused, offline, unreachable, auth), toasts, the in-place
-// confirmation and the filter chips.
+// The status banners (an update under way, writes paused, offline, unreachable, auth, a new
+// version), toasts, the in-place confirmation and the filter chips.
 import { useEffect, useLayoutEffect, useRef } from "preact/hooks";
 import { fmtClock, zoned } from "../../core/time.ts";
 import { filtering } from "../model.ts";
 import { useStore } from "../store.ts";
 import { useApp } from "./context.ts";
-import { Close, Warning } from "./icons.tsx";
+import { Close, Upgrade, Warning } from "./icons.tsx";
 import { Scrim, trapFocus } from "./Sheet.tsx";
 
 export function Banners() {
@@ -22,6 +22,10 @@ export function Banners() {
 			return "Nextcloud";
 		}
 	})();
+	const upd = useStore(app.update);
+	const update = <UpdateBanner />;
+	// An update under way says so over everything: the widget is about to restart.
+	if (upd && upd.phase !== "idle") return update;
 	if (s.paused)
 		return (
 			<div class="banner">
@@ -142,7 +146,100 @@ export function Banners() {
 			</div>
 		);
 	}
-	return null;
+	return update;
+}
+
+/** A new version (Update, What's new, Not now), the download and the restart, or why the last
+ * update didn't work. Settings → Updates has the rest. */
+export function UpdateBanner() {
+	const app = useApp();
+	const st = useStore(app.update);
+	const a = st?.available;
+	if (!st) return null;
+	if (st.phase === "downloading") {
+		const pct = Math.round(st.progress * 100);
+		return (
+			<div class="banner update">
+				<Upgrade />
+				<span class="text">
+					Downloading desk-tasks {a?.version} · {pct} %
+					<span
+						class="meter"
+						role="progressbar"
+						aria-label="Download"
+						aria-valuemin={0}
+						aria-valuemax={100}
+						aria-valuenow={pct}
+					>
+						<span style={`width: ${pct}%`} />
+					</span>
+				</span>
+			</div>
+		);
+	}
+	if (st.phase === "installing")
+		return (
+			<div class="banner update">
+				<Upgrade />
+				<span class="text">
+					Restarting to finish the update. desk-tasks is back in a moment.
+				</span>
+			</div>
+		);
+	if (!a || st.dismissed === a.version) return null;
+	const installs = st.canInstall && a.installable;
+	const notNow = (
+		<button
+			type="button"
+			class="x"
+			aria-label="Not now"
+			title="Not now (Settings → Updates still has it)"
+			onClick={() => void app.dismissUpdate()}
+		>
+			<Close size={12} />
+		</button>
+	);
+	if (st.error)
+		return (
+			<div class="banner">
+				<Warning />
+				<span class="text">{st.error}</span>
+				<span class="actions">
+					<button
+						type="button"
+						class="text-btn"
+						onClick={() => void app.installUpdate()}
+					>
+						{installs ? "Try again" : "Download"}
+					</button>
+					{notNow}
+				</span>
+			</div>
+		);
+	return (
+		<div class="banner update">
+			<Upgrade />
+			<span class="text">desk-tasks {a.version} is available.</span>
+			<span class="actions">
+				<button
+					type="button"
+					class="text-btn"
+					onClick={() => void app.bridge.openUrl(a.page)}
+				>
+					What's new
+				</button>
+				<button
+					type="button"
+					class="text-btn"
+					title={installs ? "Downloads it and restarts desk-tasks" : undefined}
+					onClick={() => void app.installUpdate()}
+				>
+					{installs ? "Update" : "Download"}
+				</button>
+				{notNow}
+			</span>
+		</div>
+	);
 }
 
 export function FilterChips() {

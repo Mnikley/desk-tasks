@@ -36,6 +36,12 @@ const key = async (p: Page, k: string) => {
 	await p.waitForTimeout(250);
 };
 
+const UPDATE = {
+	version: "0.3.0",
+	page: "https://github.com/Mnikley/desk-tasks/releases/tag/v0.3.0",
+	installable: true,
+};
+
 const SHOTS: Shot[] = [
 	{ name: "today", run: rows },
 	{
@@ -189,6 +195,58 @@ const SHOTS: Shot[] = [
 			},
 		},
 		run: rows,
+	},
+	{
+		name: "update-available",
+		stub: { update: { available: UPDATE, checkedAt: NOW.getTime() } },
+		run: async (p) => {
+			await rows(p);
+			await p.waitForSelector(".banner.update");
+		},
+	},
+	{
+		name: "update-downloading",
+		stub: {
+			update: { available: UPDATE, phase: "downloading", progress: 0.62 },
+		},
+		run: async (p) => {
+			await rows(p);
+			await p.waitForSelector(".meter");
+		},
+	},
+	{
+		name: "update-failed",
+		stub: {
+			update: {
+				available: UPDATE,
+				error:
+					"The update to 0.3.0 didn't finish; this is still the version you had. Details: update.log in the logs folder.",
+			},
+		},
+		run: async (p) => {
+			await rows(p);
+			await p.waitForSelector(".banners .banner");
+		},
+	},
+	{
+		name: "updated",
+		stub: { update: { updatedFrom: "0.1.0" } },
+		run: async (p) => {
+			await rows(p);
+			await p.waitForSelector(".toast");
+		},
+	},
+	{
+		name: "settings-updates",
+		height: 900,
+		stub: { update: { available: UPDATE, checkedAt: NOW.getTime() } },
+		run: async (p) => {
+			await rows(p);
+			await p.click("button[aria-label='More']");
+			await p.click("text=Settings");
+			await p.waitForTimeout(250);
+			await p.locator("h3", { hasText: "Updates" }).scrollIntoViewIfNeeded();
+		},
 	},
 	{ name: "first-run", stub: { server: null } },
 	{

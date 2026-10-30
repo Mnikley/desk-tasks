@@ -1,7 +1,8 @@
 # Testing on Windows
 
-CI checks that desk-tasks installs on Windows and that its Win32 and WinRT calls load, but a CI
-runner has no desktop to look at. This is the manual test on a real PC: a **quick check**
+CI checks that the installer installs desk-tasks, that the app's updater updates a running copy
+(it quits when asked and starts again), that the uninstaller removes it, and that the Win32 and
+WinRT calls load, but no one looks at a CI runner's screen. This is the manual test on a real PC: a **quick check**
 (five steps, about 15 minutes) for a new build, and the **full list** below for a release or
 when something in the quick check looks wrong.
 
@@ -10,21 +11,22 @@ desk-tasks writes to the Nextcloud you log in to: do the steps in a test list (C
 
 ## Install the build to test
 
-The latest build of `main` installs as in the README. To test your own branch, build the wheel
-on the Windows machine (needs [Bun](https://bun.sh): `winget install Oven-sh.Bun`):
+Every CI run keeps its installer as the `installer` artifact (the run's Summary page), and the
+"Development build" pre-release has the latest one from `main`. Run `desk-tasks-setup.exe`;
+desk-tasks is then in the Start menu. To build one yourself on the Windows machine (needs
+[Bun](https://bun.sh) and [Inno Setup 6](https://jrsoftware.org/isdl.php)):
 
 ```powershell
 bun install
-bun run build
-uv build --wheel
-uv tool install --force --reinstall --python-preference only-system --python 3.15 (Get-ChildItem dist\desk_tasks-*.whl | Select-Object -Last 1).FullName
+bun run release
+uv run python packaging/windows/build.py
 ```
 
-Start it with `desk-tasks`. The log is `%LOCALAPPDATA%\desk-tasks\logs\desk-tasks.log`.
+The log is `%LOCALAPPDATA%\desk-tasks\logs\desk-tasks.log`.
 
 ## Quick check
 
-1. **Start and log in.** Open Notepad, run `desk-tasks`, click into Notepad and keep typing.
+1. **Start and log in.** Open Notepad, start desk-tasks with Windows+R → `"%LOCALAPPDATA%\Programs\desk-tasks\app-<version>\pythonw.exe" -m desk_tasks`, click into Notepad and keep typing.
    The widget appears top right without taking your typing. Log in (your browser opens
    Nextcloud), make the test list.
 2. **Desktop layer and keys.** Drag Notepad half over the widget and click into the widget: it
@@ -107,8 +109,10 @@ table.
     with that task selected.
 21. Focus assist / Do not disturb suppresses toasts.
 
-## Install and security
-22. `uv tool install` of the wheel works on a clean user account; `desk-tasks` starts without a console.
+## Install, updates and security
+22. On a clean user account, `desk-tasks-setup.exe` installs without an administrator prompt,
+    the finish page's "Start desk-tasks" starts it in front, and the Start menu entry brings it
+    to the front when it is already running. No console window appears.
 23. Smart App Control (if on): the app starts. Defender does not flag anything. The interpreter is
     the signed python.org one:
     ```powershell
@@ -116,7 +120,8 @@ table.
     Get-AuthenticodeSignature $exe | Format-List Status, SignerCertificate
     Get-AuthenticodeSignature (py -3.15 -c "import sys; print(sys._base_executable)") | Format-List Status, SignerCertificate
     ```
-    Expected: `Valid`, "Python Software Foundation" (needs item 17's Run value).
+    Expected: `Valid`, "Python Software Foundation" (needs item 17's Run value). (A uv install:
+    the second command checks the interpreter it uses.)
 24. The app password is in Credential Manager (Windows Credentials → Generic: `desk-tasks`), and
     nowhere in `%LOCALAPPDATA%\desk-tasks` (search the folder for it).
 25. Cold start time and memory (python + msedgewebview2 processes): note them with the result.
@@ -131,5 +136,15 @@ table.
     `file:///C:/Windows` does nothing. Drag a file from Explorer onto the widget: nothing
     happens, and the widget keeps syncing afterwards (the dot still spins on F5).
 29. The log has no app password, and no task titles (search it for one).
-30. Uninstall (optional, last): Start with Windows off, Settings → Log out (revokes the app
-    password), Quit, `uv tool uninstall desk-tasks`, delete `%LOCALAPPDATA%\desk-tasks`.
+30. Update: install the previous release, then Settings → Updates → Check now. The banner offers
+    the new version; **What's new** opens its release page. Tick a task, then at once
+    **Update**: the banner shows the download, the widget closes and comes back by itself on the
+    new version within about 15 seconds, says "Updated to …", and the task is ticked in
+    Nextcloud. With the network cable out, **Update** says the download didn't finish and the
+    old version keeps running.
+31. Running an installer by hand while desk-tasks runs: it closes desk-tasks (pending changes
+    saved) and offers to start it again on the finish page.
+32. Uninstall (optional, last): Windows Settings → Apps → desk-tasks → Uninstall, answer Yes to
+    removing your settings. The app quits, the app password is revoked in Nextcloud (Settings →
+    Security there) and gone from Credential Manager, `%LOCALAPPDATA%\desk-tasks` and
+    `%LOCALAPPDATA%\Programs\desk-tasks` are gone, and nothing starts at the next sign-in.

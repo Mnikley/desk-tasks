@@ -1,6 +1,19 @@
 # Changelog
 
-## 0.1.0 (unreleased; installable as the "latest build")
+## 0.2.0
+
+- **Installer:** `desk-tasks-setup.exe` installs desk-tasks for your Windows account in one
+  step, with no administrator rights and nothing else to install first (it brings python.org's
+  signed Python with it). Start menu entry; uninstall from Windows Settings → Apps, optionally
+  with your settings and a log-out.
+- **Updates in the app:** desk-tasks checks GitHub for a new release twice a day (Settings →
+  Updates turns that off). A new version shows as a banner: **Update** downloads it, checks
+  it, restarts desk-tasks into it and says "Updated to …". Changes waiting to be saved are
+  saved first; an update that fails leaves the old version running and says so.
+- Started from the Start menu, desk-tasks comes to the front; started with Windows, it stays on
+  the desktop as before.
+
+## 0.1.0 (the first "latest build")
 
 First version.
 

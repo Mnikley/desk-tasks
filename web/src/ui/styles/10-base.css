@@ -243,6 +243,40 @@ button {
 	display: flex;
 	gap: 4px;
 	flex: none;
+	align-items: center;
+}
+.banner.update svg {
+	color: var(--accent);
+}
+.banner .x {
+	width: 24px;
+	height: 24px;
+	display: grid;
+	place-items: center;
+	border-radius: var(--radius-s);
+	color: var(--muted);
+}
+.banner .x:hover {
+	background: var(--hover);
+	color: var(--ink);
+}
+.banner .x svg {
+	color: inherit;
+}
+/* Download progress, under the banner's text. */
+.meter {
+	display: block;
+	height: 3px;
+	margin-top: 6px;
+	border-radius: 2px;
+	background: var(--hairline);
+	overflow: hidden;
+}
+.meter > span {
+	display: block;
+	height: 100%;
+	background: var(--accent);
+	transition: width var(--t-hover);
 }
 
 .text-btn {

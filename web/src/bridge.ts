@@ -58,6 +58,7 @@ const settings = z.object({
 	defaultList: z.string().nullable(),
 	density: z.enum(["comfortable", "compact"]),
 	firstRunDone: z.boolean(),
+	updateCheck: z.boolean(),
 });
 export type Settings = z.infer<typeof settings>;
 export type Hotkey = z.infer<typeof hotkey>;
@@ -90,6 +91,31 @@ const loginState = z.discriminatedUnion("state", [
 ]);
 export type LoginState = z.infer<typeof loginState>;
 
+/** The updater's state (src/desk_tasks/updates.py, Updater.snapshot). */
+const updateState = z.object({
+	current: z.string(),
+	/** Installed by desk-tasks-setup.exe: "Update" installs; otherwise the release page. */
+	canInstall: z.boolean(),
+	checking: z.boolean(),
+	checkedAt: z.number().nullable(),
+	available: z
+		.object({
+			version: z.string(),
+			page: z.string(),
+			installable: z.boolean(),
+		})
+		.nullable(),
+	dismissed: z.string().nullable(),
+	phase: z.enum(["idle", "downloading", "installing"]),
+	progress: z.number(),
+	error: z.string().nullable(),
+	/** Set once, after the start that follows an update: the version before. */
+	updatedFrom: z.string().nullable(),
+	/** The current version's release page ("What's new" after an update). */
+	page: z.string(),
+});
+export type UpdateState = z.infer<typeof updateState>;
+
 const summonTarget = z.union([
 	z.enum(["list", "today", "quick-add", "settings"]),
 	z.object({ task: z.string() }),
@@ -117,6 +143,7 @@ const shellEvent = z.discriminatedUnion("type", [
 	}),
 	z.object({ type: z.literal("hotkey-failed"), combo: z.string() }),
 	z.object({ type: z.literal("quit") }),
+	z.object({ type: z.literal("update"), state: updateState }),
 ]);
 export type ShellEvent = z.infer<typeof shellEvent>;
 
@@ -159,6 +186,10 @@ export interface PyApi {
 		level: "debug" | "info" | "warn" | "error",
 		msg: string,
 	): Promise<unknown>;
+	update_get(): Promise<unknown>;
+	update_check(): Promise<unknown>;
+	update_install(version: string): Promise<unknown>;
+	update_dismiss(version: string): Promise<unknown>;
 }
 
 declare global {
@@ -278,6 +309,31 @@ export class Bridge {
 	/** Links from task notes; false when the bridge refused it (not http/https/mailto). */
 	async openUrl(url: string): Promise<boolean> {
 		return okOrMessage.parse(await this.api.open_url(url)).ok;
+	}
+
+	/** The updater's state; null where there is none (or the answer is unreadable). */
+	async updateGet(): Promise<UpdateState | null> {
+		const r = z
+			.union([
+				z.object({ ok: z.literal(true), state: updateState }),
+				z.object({ ok: z.literal(false), message: z.string() }),
+			])
+			.safeParse(await this.api.update_get());
+		return r.success && r.data.ok ? r.data.state : null;
+	}
+
+	/** "Check now": the result comes as an `update` event. */
+	async updateCheck(): Promise<void> {
+		await this.checked(this.api.update_check());
+	}
+
+	/** Starts the update to `version`; progress comes as `update` events. */
+	async updateInstall(version: string): Promise<void> {
+		await this.checked(this.api.update_install(version));
+	}
+
+	async updateDismiss(version: string): Promise<void> {
+		await this.checked(this.api.update_dismiss(version));
 	}
 
 	log(level: "debug" | "info" | "warn" | "error", msg: string): void {

@@ -13,7 +13,7 @@ desk-tasks is MIT-licensed (see [LICENSE](LICENSE)). It builds on the following 
 ical.js is used unmodified under the Mozilla Public License 2.0
 (<https://mozilla.org/MPL/2.0/>); its source is available at the link above.
 
-## Installed alongside (Python packages, not bundled)
+## Python packages (installed by uv, or carried by the Windows installer)
 
 | Component | Licence | Source |
 |---|---|---|
@@ -25,7 +25,19 @@ ical.js is used unmodified under the Mozilla Public License 2.0
 | Pillow (via pystray) | MIT-CMU | <https://github.com/python-pillow/Pillow> |
 | PyWinRT (`winrt-*`, Windows) | MIT | <https://github.com/pywinrt/pywinrt> |
 
-pystray is used as an unmodified, separately installed library, as the LGPL allows.
+pystray is used as an unmodified library in its own files (`Lib\site-packages\pystray` in the
+installed folder), which can be replaced, as the LGPL allows.
+
+## In the Windows installer
+
+| Component | Licence | Source |
+|---|---|---|
+| Python (python.org's embeddable package, unmodified) | PSF-2.0 | <https://www.python.org> |
+| cffi, pycparser, jaraco.classes/context/functools, more-itertools, pywin32-ctypes, six, typing-extensions (dependencies of the above) | MIT, BSD, PSF-2.0 | their PyPI pages |
+
+Each package's licence file is installed with it (`*.dist-info`), Python's as `LICENSE.txt`.
+The installer is made with Inno Setup (<https://jrsoftware.org/isinfo.php>), whose licence
+allows distributing installers made with it.
 
 Development tools (Bun, TypeScript, Biome, Playwright, axe-core, uv, ruff, ty, pytest) are not
 distributed with desk-tasks.

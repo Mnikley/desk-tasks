@@ -60,8 +60,8 @@ DOWNLOAD_FAILED = "The download didn't finish. Check your connection and try aga
 DAMAGED = "The download was damaged. Try again."
 NOT_STARTED = "The installer didn't start. Download it from the release page."
 UNFINISHED = (
-    "The update to {version} didn't finish. The log is "
-    "%LOCALAPPDATA%\\desk-tasks\\logs\\update.log."
+    "The update to {version} didn't finish; this is still the version you had. "
+    "Details: update.log in the logs folder."
 )
 
 _VERSION = re.compile(r"^v?(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,3})$")
@@ -367,8 +367,13 @@ class Updater:
         if self._available is None:
             self._state.pop("available", None)
         self._save()
-        with contextlib.suppress(OSError):
-            for f in self._folder.glob("desk-tasks-setup-*"):
+        self._clean()
+
+    def _clean(self) -> None:
+        """Downloads of earlier updates go (one still running as the installer stays until the
+        next try)."""
+        for f in self._folder.glob("desk-tasks-setup-*"):
+            with contextlib.suppress(OSError):
                 f.unlink()
 
     # -- what the UI sees -------------------------------------------------------------------
@@ -395,6 +400,7 @@ class Updater:
                 "progress": round(self._progress, 3),
                 "error": self._error,
                 "updatedFrom": self._updated,
+                "page": f"{self._source.pages}tag/v{self.current}",
             }
             if deliver:
                 self._updated = None
@@ -413,6 +419,10 @@ class Updater:
 
     def _run(self) -> None:
         self._wake.wait(FIRST_CHECK_S)
+        # Right after an update, the installer that started this app may still have been
+        # running when it started.
+        if self._phase == "idle":
+            self._clean()
         while True:
             try:
                 last = self._state.get("lastCheck")

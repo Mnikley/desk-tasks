@@ -25,7 +25,8 @@ import { Controller, type UiPrefs } from "./controller.ts";
 import type { ViewId } from "./model.ts";
 import { type ReminderState, Reminders } from "./reminders.ts";
 
-const VERSION = "0.1.0";
+/** pyproject.toml's version (web/scripts/build.ts). */
+const VERSION = process.env.DESK_TASKS_VERSION ?? "dev";
 
 /** Durable settings go to Python, not IndexedDB (they must survive a lost WebView profile). */
 function settingsPersister(bridge: Bridge): Persister {
@@ -152,6 +153,7 @@ export async function boot(
 		if (db) void saveKv(db, "reminders", st).catch(() => undefined);
 	});
 	if (!settings.firstRunDone) app.sheet.set({ kind: "welcome" });
+	void app.loadUpdate();
 	void app.syncNow(true);
 	current = app;
 	listenOnce(b);

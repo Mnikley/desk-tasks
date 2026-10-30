@@ -22,6 +22,10 @@ export const CALLS = [
 	"settings_set",
 	"open_url",
 	"log",
+	"update_get",
+	"update_check",
+	"update_install",
+	"update_dismiss",
 ] as const;
 
 export const DEFAULT_SETTINGS = {
@@ -41,6 +45,22 @@ export const DEFAULT_SETTINGS = {
 	defaultList: null,
 	density: "comfortable",
 	firstRunDone: true,
+	updateCheck: true,
+};
+
+/** What update_get answers by default: up to date, never checked. */
+export const UPDATE_STATE = {
+	current: "0.2.0",
+	canInstall: true,
+	checking: false,
+	checkedAt: null,
+	available: null,
+	dismissed: null,
+	phase: "idle",
+	progress: 0,
+	error: null,
+	updatedFrom: null,
+	page: "https://github.com/Mnikley/desk-tasks/releases/tag/v0.2.0",
 };
 
 export interface StubOptions {
@@ -49,6 +69,8 @@ export interface StubOptions {
 	user?: string;
 	password?: string;
 	settings?: Record<string, unknown>;
+	/** update_get's state (merged into UPDATE_STATE). */
+	update?: Record<string, unknown>;
 	/** Replaces dav() (offline, failures). */
 	dav?: (
 		req: DavRequest,
@@ -63,6 +85,7 @@ export interface Stub {
 	/** Queues a shell event for the page's next_event long-poll. */
 	push(event: Record<string, unknown>): void;
 	connected: boolean;
+	update: Record<string, unknown>;
 }
 
 export async function installStub(
@@ -87,6 +110,7 @@ export async function installStub(
 			wake?.();
 		},
 		connected: opts.server !== null,
+		update: { ...UPDATE_STATE, ...opts.update },
 	};
 	let login: "idle" | "pending" | "done" = "idle";
 	await page.exposeBinding(
@@ -137,6 +161,8 @@ export async function installStub(
 					return { ok: true, revoked: true };
 				case "window":
 					return { ok: true, value: null };
+				case "update_get":
+					return { ok: true, state: stub.update };
 				default:
 					return { ok: true };
 			}

@@ -11,7 +11,8 @@ list shared with you, local access, …), what they get, and steps to reproduce.
 
 ## Design
 
-desk-tasks keeps one secret, the Nextcloud app password, and talks to one server.
+desk-tasks keeps one secret, the Nextcloud app password. It talks to your Nextcloud, and to
+GitHub for updates.
 
 - **The password never reaches the web view.** It is stored in Windows Credential Manager
   (service `desk-tasks`) and read only by the Python bridge, which adds it to each request.
@@ -33,6 +34,17 @@ desk-tasks keeps one secret, the Nextcloud app password, and talks to one server
   mapped to the installed files; navigation anywhere else is cancelled, `window.open` never
   opens a window, and links from task notes open in your browser only for `https:`, `http:` and
   `mailto:`. Only the bridge calls the UI needs are exposed to it.
+- **Updates come only from this repository's releases.** Python (never the web view) asks
+  `api.github.com` for the latest release, at most twice a day and only while "Check for
+  updates" is on; the request carries no cookies, no credentials and nothing about your tasks.
+  A release is offered only with a plain `vX.Y.Z` tag and pages and download links under
+  `github.com/Mnikley/desk-tasks/releases/`; the download may be redirected only to GitHub's
+  own hosts, and the installer runs only if its size and SHA-256 match what GitHub lists for
+  it. Copies not installed by the installer are only told about a new version.
+- **The installer** installs per user without administrator rights. It carries python.org's
+  signed embeddable Python and the dependencies pinned with hashes in `uv.lock`; the build
+  pins the Python package and Inno Setup by SHA-256. The installer itself isn't code-signed
+  yet (CI signs it when a certificate is configured).
 - **Task text is untrusted input.** It comes from your server and from anyone who shares a list
   with you. It is rendered as text (never as HTML), and iCalendar edits are made in place on
   the parsed structure.

@@ -1,5 +1,6 @@
-"""CI's check of the installer on Windows: installs it, updates over a running desk-tasks the way
-the in-app updater does, and uninstalls it.
+"""CI's check of the installer on Windows: installs it, updates a running desk-tasks with the
+app's own updater (download over HTTP, checks, the silent installer, the restart), and
+uninstalls it.
 
     python packaging/windows/smoke.py dist/desk-tasks-setup.exe 0.2.0
 
@@ -10,10 +11,15 @@ HKCU); the app's data goes to a temporary DESK_TASKS_HOME.
 from __future__ import annotations
 
 import ctypes
+import functools
+import hashlib
+import http.server
+import json
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import winreg
 from collections.abc import Callable
@@ -56,10 +62,57 @@ def probe() -> int:
     return user32.FindWindowW("DeskTasksProbe", "desk-tasks probe") or 0
 
 
+#: Installer log lines about single files: left out of CI's output.
+FILE_LINES = ("File entry", "Dest filename", "Time stamp", "Installing the file", "Dest file",
+              "Successfully installed the file", "Creating directory")  # fmt: skip
+
+
+def show_log(log: Path) -> str:
+    text = log.read_text(encoding="utf-8", errors="replace")
+    print("\n".join(x for x in text.splitlines() if not any(f in x for f in FILE_LINES)))
+    return text
+
+
 def install(setup: Path, log: Path, *extra: str) -> None:
     r = subprocess.run([str(setup), *SILENT, f"/LOG={log}", *extra], timeout=600, check=False)
-    print(log.read_text(encoding="utf-8", errors="replace")[-3000:])
+    show_log(log)
     assert r.returncode == 0, f"the installer exited with {r.returncode}"
+
+
+def serve(folder: Path) -> int:
+    """A local server for the installer, standing in for GitHub's release download."""
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(folder))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server.server_address[1]
+
+
+def update_with_the_app_updater(setup: Path, version: str, home: Path, log: Path) -> None:
+    """What "Update" in the widget does, from a desk-tasks that thinks it is 0.0.9."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+    from desk_tasks.settings import SettingsFile
+    from desk_tasks.updates import Release, Source, Updater
+
+    port = serve(setup.parent)
+    base = f"http://127.0.0.1:{port}/"
+    source = Source(api=base, pages=base, downloads=base, redirects=("127.0.0.1",))
+    data = setup.read_bytes()
+    release = Release(version, base, base + setup.name, len(data), hashlib.sha256(data).hexdigest())
+    events: list[dict[str, object]] = []
+    u = Updater(
+        home / "updates",
+        SettingsFile(home / "settings.json"),
+        events.append,
+        kind="setup",
+        source=source,
+        fetch=lambda _src: release,
+        version="0.0.9",
+        log_file=log,
+    )
+    u.check(manual=True)
+    assert u.snapshot()["available"], events
+    assert u.install(version) is None
+    assert wait("installer start", lambda: u.snapshot()["phase"] == "installing", 60), u.snapshot()
 
 
 def main() -> None:
@@ -95,20 +148,36 @@ def main() -> None:
     install(setup, work / "reinstall.log")
     assert not old.exists() and pythonw.exists()
 
-    step("Update over a running desk-tasks, as the in-app updater does")
+    step("Update a running desk-tasks with the app's updater")
+    home = work / "home"
     app = subprocess.Popen([str(pythonw), "-m", "desk_tasks"], env=env)
     if not wait("probe window", lambda: bool(probe()), 90):
         print("::warning::desk-tasks didn't start on this runner; skipping the running-app checks")
         app.kill()
     else:
         time.sleep(5)  # let the page load, so quitting goes through the UI's flush
-        install(setup, work / "update.log", "/relaunch")
-        log = (work / "update.log").read_text(encoding="utf-8", errors="replace")
-        assert "desk-tasks has quit" in log, "the installer didn't close the app"
-        assert "ending it" not in log, "the app didn't quit when asked; the installer ended it"
-        assert app.wait(10) == 0, "the app didn't exit cleanly"
-        assert wait("relaunched app", lambda: bool(probe()), 90), "not started again"
-        print("   it quit when asked, the files were replaced, and it started again")
+        log = work / "update.log"
+        update_with_the_app_updater(setup, version, home, log)
+        assert app.wait(60) == 0, "the app didn't exit cleanly for the installer"
+        assert wait("relaunched app", lambda: bool(probe()), 120), "not started again"
+        text = show_log(log)
+        assert "desk-tasks has quit" in text, "the installer didn't close the app"
+        assert "ending it" not in text, "the app didn't quit when asked; the installer ended it"
+        state = home / "updates" / "state.json"
+        assert wait(
+            "the new start's verdict",
+            lambda: "pending" not in json.loads(state.read_text(encoding="utf-8")),
+            60,
+        ), state.read_text(encoding="utf-8")
+        saved = json.loads(state.read_text(encoding="utf-8"))
+        assert saved["lastVersion"] == version, saved
+        assert wait(
+            "the download removed",
+            lambda: not list((home / "updates").glob("desk-tasks-setup-*")),
+            90,
+        ), "the downloaded installer was left behind"
+        print("   downloaded and checked, the app quit when asked, the installer replaced the")
+        print("   files and started it again, and the new start saw the update through")
         user32.PostMessageW(probe(), user32.RegisterWindowMessageW("desk-tasks-quit"), 0, 0)
         assert wait("exit", lambda: not running(), 30), "the relaunched app didn't quit"
 

@@ -2,7 +2,13 @@
 // Every user action that writes goes through `act`, which runs it as one undo group, offers
 // Undo, and turns each kind of failure into its state (conflict dialog, paused banner,
 // "Couldn't save · Retry" toast). The sync cadence and the shell's events live here too.
-import type { Bridge, Settings, SettingsPatch, ShellEvent } from "../bridge.ts";
+import type {
+	Bridge,
+	Settings,
+	SettingsPatch,
+	ShellEvent,
+	UpdateState,
+} from "../bridge.ts";
 import {
 	completeTask,
 	moveToList,
@@ -199,6 +205,8 @@ export class Controller {
 	readonly now;
 	/** Bumped by the core store's changes, batched. */
 	readonly revision = createStore(0);
+	/** The updater (the banner, Settings → Updates); null where there is none. */
+	readonly update = createStore<UpdateState | null>(null);
 	private readonly savePrefs: (p: UiPrefs) => void;
 	readonly version: string;
 	private readonly onLogout: () => void;
@@ -1416,6 +1424,54 @@ export class Controller {
 		void this.syncNow(true);
 	}
 
+	// ---------- updates ----------
+
+	/** At boot: the updater's state, and "Updated to …" once after an update. */
+	async loadUpdate(): Promise<void> {
+		const st = await this.bridge.updateGet().catch(() => null);
+		if (!st) return;
+		this.update.set(st);
+		if (st.updatedFrom !== null)
+			this.toast(`Updated to desk-tasks ${st.current}.`, {
+				actions: [
+					{ label: "What's new", run: () => void this.bridge.openUrl(st.page) },
+				],
+				ms: 12_000,
+			});
+	}
+
+	async checkForUpdates(): Promise<void> {
+		try {
+			await this.bridge.updateCheck();
+		} catch (err) {
+			this.toast((err as Error).message, { tone: "error" });
+		}
+	}
+
+	/** "Update": downloads and installs the offered version (desk-tasks restarts), or opens
+	 * the release page where this copy can't install it itself. */
+	async installUpdate(): Promise<void> {
+		const st = this.update.get();
+		const a = st?.available;
+		if (!st || !a) return;
+		if (!st.canInstall || !a.installable) {
+			await this.bridge.openUrl(a.page);
+			return;
+		}
+		// Ticks still lingering go out now, before the app quits for the installer.
+		await this.flushLinger();
+		try {
+			await this.bridge.updateInstall(a.version);
+		} catch (err) {
+			this.toast((err as Error).message, { tone: "error" });
+		}
+	}
+
+	async dismissUpdate(): Promise<void> {
+		const v = this.update.get()?.available?.version;
+		if (v) await this.bridge.updateDismiss(v).catch(() => undefined);
+	}
+
 	// ---------- confirmation ----------
 
 	readonly confirmation = createStore<{
@@ -1556,6 +1612,9 @@ export class Controller {
 				return;
 			case "toast-action":
 				void this.reminders?.action(ev.action, ev.href);
+				return;
+			case "update":
+				this.update.set(ev.state);
 				return;
 		}
 	}

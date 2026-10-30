@@ -5,6 +5,10 @@ import { join } from "node:path";
 import { tokensCss } from "../src/ui/tokens.ts";
 
 const root = join(import.meta.dir, "..", "..");
+const version = (await Bun.file(join(root, "pyproject.toml")).text()).match(
+	/^version = "([^"]+)"$/m,
+)?.[1];
+if (!version) throw new Error("no version in pyproject.toml");
 const out = join(root, "src", "desk_tasks", "web");
 const dev = process.argv.includes("--dev");
 
@@ -21,6 +25,7 @@ const result = await Bun.build({
 	sourcemap: dev ? "inline" : "none",
 	define: {
 		"process.env.NODE_ENV": JSON.stringify(dev ? "development" : "production"),
+		"process.env.DESK_TASKS_VERSION": JSON.stringify(version),
 	},
 });
 if (!result.success) {

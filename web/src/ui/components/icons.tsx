@@ -101,6 +101,13 @@ export const Warning = (p: P) => (
 		<path d="M8 6.5v3M8 11.6v.1" />
 	</Svg>
 );
+/** A new version: an arrow up in a circle. */
+export const Upgrade = (p: P) => (
+	<Svg {...p}>
+		<circle cx="8" cy="8" r="6" />
+		<path d="M8 10.8V5.4M5.6 7.6 8 5.2l2.4 2.4" />
+	</Svg>
+);
 export const Check = (p: P) => (
 	<Svg {...p}>
 		<path d="M3.5 8.5l3 3 6-7" />
