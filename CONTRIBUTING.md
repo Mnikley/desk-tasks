@@ -54,10 +54,13 @@ app (the probe window, the quit message, the mutex, the marker file) are checked
 
 1. Move the version in `pyproject.toml`, `src/desk_tasks/__init__.py`, `uv.lock` (`uv lock`)
    and the README's uv command, and give it a section in `CHANGELOG.md`.
-2. Merge to `main`, then tag it: `git tag v0.2.0 && git push origin v0.2.0`.
-3. CI tests the tag, builds the wheel and the installer, and publishes release 0.2.0 with the
+2. Merge to `main`, then tag it: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. CI tests the tag, builds the wheel and the installer, and publishes release X.Y.Z with the
    changelog section as notes; then it installs the release as the README says. Installed
    copies offer the update within 12 hours.
+
+A published tag is never moved or deleted (installed copies may already have it): fix forward
+with a new patch version.
 
 Pushes to `main` publish a "Development build" pre-release; the app never offers those.
 

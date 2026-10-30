@@ -195,6 +195,8 @@ jobs:
             echo "**Install:** download \`desk-tasks-setup.exe\` below and run it (no administrator rights needed)."
             echo "Already installed? desk-tasks offers the update itself."
             echo
+            echo "[Code signing policy](https://github.com/Mnikley/desk-tasks#code-signing-policy) · [Privacy policy](https://github.com/Mnikley/desk-tasks/blob/main/PRIVACY.md)"
+            echo
             echo "SHA-256: \`$(sha256sum dist/desk-tasks-setup.exe | cut -d' ' -f1)\` (desk-tasks-setup.exe)"
           } >> notes.md
           cat notes.md
